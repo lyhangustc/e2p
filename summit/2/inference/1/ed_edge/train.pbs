@@ -1,0 +1,14 @@
+#PBS -N ed_edge
+#PBS -l nodes=1:gpus=1:s
+#PBS -o /gdata/liyh/data/CelebA/checkpoint/1/ed_edge/out_file1.out
+#PBS -e /gdata/liyh/data/CelebA/checkpoint/1/ed_edge/err_file1.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/p2p/ -s /gdata/liyh/project/p2p/summit/inference/1/ed_edge/train.sh bit:5000/deepo 

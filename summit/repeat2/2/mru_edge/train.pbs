@@ -1,0 +1,14 @@
+#PBS -N mru_edge
+#PBS -l nodes=1:gpus=1:S
+#PBS -o /gdata/liyh/project/p2p/summit/repeat2/2/mru_edge/out_file.out
+#PBS -e /gdata/liyh/project/p2p/summit/repeat2/2/mru_edge/err_file.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/p2p/ -s /gdata/liyh/project/p2p/summit/repeat2/2/mru_edge/train.sh bit:5000/deepo 

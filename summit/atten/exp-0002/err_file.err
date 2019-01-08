@@ -1,0 +1,50 @@
+/usr/lib/python3.6/importlib/_bootstrap.py:219: RuntimeWarning: compiletime version 3.5 of module 'tensorflow.python.framework.fast_tensor_util' does not match runtime version 3.6
+  return f(*args, **kwds)
+WARNING:tensorflow:From p2p_att.py:195: TFRecordDataset.__init__ (from tensorflow.contrib.data.python.ops.readers) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use `tf.data.TFRecordDataset`.
+WARNING:tensorflow:From p2p_att.py:696: get_or_create_global_step (from tensorflow.contrib.framework.python.ops.variables) is deprecated and will be removed in a future version.
+Instructions for updating:
+Please switch to tf.train.get_or_create_global_step
+2018-08-30 15:18:55.133249: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-08-30 15:18:55.602645: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.62
+pciBusID: 0000:8a:00.0
+totalMemory: 10.92GiB freeMemory: 10.76GiB
+2018-08-30 15:18:55.932379: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 1 with properties: 
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.62
+pciBusID: 0000:89:00.0
+totalMemory: 10.92GiB freeMemory: 10.76GiB
+2018-08-30 15:18:55.935079: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1045] Device peer to peer matrix
+2018-08-30 15:18:55.935163: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1051] DMA: 0 1 
+2018-08-30 15:18:55.935189: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1061] 0:   Y Y 
+2018-08-30 15:18:55.935208: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1061] 1:   Y Y 
+2018-08-30 15:18:55.935241: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: GeForce GTX 1080 Ti, pci bus id: 0000:8a:00.0, compute capability: 6.1)
+2018-08-30 15:18:55.935262: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:1) -> (device: 1, name: GeForce GTX 1080 Ti, pci bus id: 0000:89:00.0, compute capability: 6.1)
+2018-08-30 15:33:39.963788: I tensorflow/stream_executor/dso_loader.cc:129] Couldn't open CUDA library libcupti.so.8.0. LD_LIBRARY_PATH: /usr/local/nvidia/lib:/usr/local/nvidia/lib64
+2018-08-30 15:33:39.963845: F ./tensorflow/stream_executor/lib/statusor.h:212] Non-OK-status: status_ status: Failed precondition: could not dlopen DSO: libcupti.so.8.0; dlerror: libcupti.so.8.0: cannot open shared object file: No such file or directory
+/gdata/liyh/project/p2p/summit/atten/exp-0002/train.sh: line 15:     7 Aborted                 (core dumped) python p2p_att.py --mode train --output_dir /gdata/liyh/data/CelebA/atten/checkpoint/exp-0002 --max_epochs 2000 --input_dir /gdata/liyh/data/CelebA/data/train --batch_size 16 --num_examples 141633 --generator sa --input_type df
+/usr/lib/python3.6/importlib/_bootstrap.py:219: RuntimeWarning: compiletime version 3.5 of module 'tensorflow.python.framework.fast_tensor_util' does not match runtime version 3.6
+  return f(*args, **kwds)
+WARNING:tensorflow:From p2p_att.py:223: TFRecordDataset.__init__ (from tensorflow.contrib.data.python.ops.readers) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use `tf.data.TFRecordDataset`.
+WARNING:tensorflow:From p2p_att.py:728: get_or_create_global_step (from tensorflow.contrib.framework.python.ops.variables) is deprecated and will be removed in a future version.
+Instructions for updating:
+Please switch to tf.train.get_or_create_global_step
+2018-09-13 06:55:01.098258: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-09-13 06:55:01.539423: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.62
+pciBusID: 0000:8a:00.0
+totalMemory: 10.92GiB freeMemory: 10.76GiB
+2018-09-13 06:55:01.845945: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 1 with properties: 
+name: GeForce GTX 1080 Ti major: 6 minor: 1 memoryClockRate(GHz): 1.62
+pciBusID: 0000:89:00.0
+totalMemory: 10.92GiB freeMemory: 10.76GiB
+2018-09-13 06:55:01.847439: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1045] Device peer to peer matrix
+2018-09-13 06:55:01.848811: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1051] DMA: 0 1 
+2018-09-13 06:55:01.848852: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1061] 0:   Y Y 
+2018-09-13 06:55:01.848873: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1061] 1:   Y Y 
+2018-09-13 06:55:01.848911: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: GeForce GTX 1080 Ti, pci bus id: 0000:8a:00.0, compute capability: 6.1)
+2018-09-13 06:55:01.848939: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:1) -> (device: 1, name: GeForce GTX 1080 Ti, pci bus id: 0000:89:00.0, compute capability: 6.1)
+=>> PBS: job killed: walltime 604835 exceeded limit 604800

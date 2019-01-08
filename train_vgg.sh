@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=1 python train_vgg.py --input_dir /media/liyh/WD/Data/MS-Celeb-1M/tfrecord/train  --mode train --output /media/liyh/WD/Data/MS-Celeb-1M/output --class_num 72686 --num_examples 3601930

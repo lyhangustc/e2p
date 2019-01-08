@@ -1,0 +1,38 @@
+/usr/local/sbin/startdocker: line 3: /tmp/startdocker.log: Permission denied
+/usr/local/sbin/startdocker: line 76: /tmp/startdocker.log: Permission denied
+2018-10-18 15:32:08.878300: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-10-18 15:32:09.164387: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: Tesla K80 major: 3 minor: 7 memoryClockRate(GHz): 0.8235
+pciBusID: 0000:8b:00.0
+totalMemory: 11.17GiB freeMemory: 2.97GiB
+2018-10-18 15:32:09.164450: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: Tesla K80, pci bus id: 0000:8b:00.0, compute capability: 3.7)
+/usr/local/sbin/startdocker: line 3: /tmp/startdocker.log: Permission denied
+/usr/local/sbin/startdocker: line 76: /tmp/startdocker.log: Permission denied
+2018-10-18 15:34:35.899222: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-10-18 15:34:36.201278: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: Tesla K80 major: 3 minor: 7 memoryClockRate(GHz): 0.8235
+pciBusID: 0000:8e:00.0
+totalMemory: 11.17GiB freeMemory: 430.44MiB
+2018-10-18 15:34:36.201324: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: Tesla K80, pci bus id: 0000:8e:00.0, compute capability: 3.7)
+/usr/local/sbin/startdocker: line 3: /tmp/startdocker.log: Permission denied
+/usr/local/sbin/startdocker: line 76: /tmp/startdocker.log: Permission denied
+/gdata/liyh/project/p2p/summit/eval/train.sh: line 3: output_file: command not found
+2018-10-18 16:06:52.472089: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-10-18 16:06:52.787311: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: Tesla K80 major: 3 minor: 7 memoryClockRate(GHz): 0.8235
+pciBusID: 0000:8b:00.0
+totalMemory: 11.17GiB freeMemory: 2.97GiB
+2018-10-18 16:06:52.787371: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: Tesla K80, pci bus id: 0000:8b:00.0, compute capability: 3.7)
+/gdata/liyh/project/p2p/summit/eval/train.sh: line 5:     8 Killed                  python /gdata/liyh/tool/InceptionScore/ComputeInceptionScore.py --input_dir /gdata/liyh/data/CelebA/old/output/mru_df/images --key_word output >> /gdata/liyh/project/p2p/summit/eval/results1
+  File "/gdata/liyh/tool/InceptionScore/ComputeInceptionScore.py", line 63
+    print('End of processing')    with tf.Session() as sess:
+                                     ^
+SyntaxError: invalid syntax
+  File "/gdata/liyh/tool/InceptionScore/ComputeInceptionScore.py", line 63
+    print('End of processing')    with tf.Session() as sess:
+                                     ^
+SyntaxError: invalid syntax
+  File "/gdata/liyh/tool/InceptionScore/ComputeInceptionScore.py", line 63
+    print('End of processing')    with tf.Session() as sess:
+                                     ^
+SyntaxError: invalid syntax
