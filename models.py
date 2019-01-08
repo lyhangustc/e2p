@@ -30,7 +30,7 @@ def conv(batch_input, out_channels, stride=2, filter_size=4):
 
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
         #     => [batch, out_height, out_width, out_channels]
-        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT")
+        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT") 
         conv = tf.nn.conv2d(input=padded_input, filter=w, [1, stride, stride, 1], padding="VALID") + b
         return conv
 
@@ -43,6 +43,17 @@ def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
         #     => [batch, out_height, out_width, out_channels]
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT")
         conv = tf.nn.conv2d(input=padded_input, filter=spectral_norm(filter), [1, stride, stride, 1], padding="VALID") + b
+        return conv
+
+def conv_dialated_sn(batch_input, out_channels, rate=1, filter_size=4):
+    with tf.variable_scope("conv_sn"):
+        in_channels = batch_input.get_shape()[3]
+        w = tf.get_variable("kernel", [filter_size, filter_size, in_channels, out_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))        
+        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
+        #     => [batch, out_height, out_width, out_channels]
+        padded_input = tf.pad(batch_input, [[0, 0], [rate, rate], [rate, rate], [0, 0]], mode="REFLECT")
+        conv = tf.nn.atrous_conv2d(input=padded_input, filter=spectral_norm(filter), rate=rate, padding="VALID") + b
         return conv
 
 def lrelu(x, a):
@@ -112,6 +123,29 @@ def deconv(batch_input, out_channels, filter_size=4, stride=2):
         conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * stride, in_width * stride, out_channels], [1, stride, stride, 1], padding="SAME") + b
         return conv
 
+def block_dialated_sn(net, out_channels, dialation_rate=1, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
+    """Builds the a resnet block with dialated conv and spectral normalization."""
+    with tf.variable_scope(scope, 'BlockDialatedSN', [net], reuse=reuse):
+        with tf.variable_scope('Branch_0'):
+            skip_connection = net
+        with tf.variable_scope('Branch_1'):
+            conv = conv_dialated_sn(batch_input=net, out_channels=out_channels, rate=dialation_rate, filter_size=3)
+            conv = tf.contrib.layers.instance_norm(conv)
+            if activation_fn:
+                conv = activation_fn(conv)
+
+            conv = conv_dialated_sn(batch_input=net, out_channels=out_channels, rate=dialation_rate, filter_size=3)
+            conv = tf.contrib.layers.instance_norm(conv)
+            if activation_fn:
+                conv = activation_fn(conv)
+
+        net = scale * conv + skip_connection
+
+        # Remove ReLU at the end of the residual block
+        # http://torch.ch/blog/2016/02/04/resnets.html
+        #if activation_fn:
+        #     net = activation_fn(net)
+        return net
 
 def bottleneck(inputs, depth, depth_bottleneck, stride, rate=1,
                outputs_collections=None, scope=None):
@@ -220,55 +254,45 @@ def blockC(net, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
       net = activation_fn(net)
   return net
 
-
-def block_stem(net, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
-    """Builds the stem block of resnet"""
-    with tf.variable_scope(scop, "Block_stem", [net], reuse=reuse):
-        net = slim.conv2d(net, 32, 3, scope='Conv2d_0a_3x3')
-        net = slim.conv2d(net, 32, 3, scope='Conv2d_0b_3x3')
-        net = slim.conv2d(net, 64, 3, scope='Conv2d_0c_3x3')
-        with tf.variable_scope('Branch_0'):
-            a=1#tower_maxpool =
-
-
 def atte(x, I, output_channel, stride=1):
-    channel_x = x.shape[3]
+    with tf.variable_scope("attention"):
+        channel_x = x.shape[3]
 
-    x_I = tf.concat([x, I], axis=3)
-    m = slim.conv2d(x_I, channel_x, [3, 3], stride=1,
-                           normalizer_fn=None, activation_fn=tf.sigmoid)
-    n = slim.conv2d(x_I, output_channel, [3, 3], stride=stride,
-                           normalizer_fn=None, activation_fn=tf.sigmoid)
+        x_I = tf.concat([x, I], axis=3)
+        m = slim.conv2d(x_I, channel_x, [3, 3], stride=1,
+                               normalizer_fn=None, activation_fn=tf.sigmoid)
+        n = slim.conv2d(x_I, output_channel, [3, 3], stride=stride,
+                               normalizer_fn=None, activation_fn=tf.sigmoid)
 
-    x_m_I = tf.concat([tf.multiply(x, m), I], axis=3)
-    if not stride == 1:
-        x = slim.conv2d(x, output_channel, [1, 1], stride=stride,
-                           normalizer_fn=None, activation_fn=None)
-    z = slim.conv2d(x_m_I, output_channel, [3, 3], stride=stride,
-                           normalizer_fn=None, activation_fn=tf.nn.relu)
-    y = tf.multiply(x, 1-n) + tf.multiply(z, n)
-    return y
+        x_m_I = tf.concat([tf.multiply(x, m), I], axis=3)
+        if not stride == 1:
+            x = slim.conv2d(x, output_channel, [1, 1], stride=stride,
+                               normalizer_fn=None, activation_fn=None)
+        z = slim.conv2d(x_m_I, output_channel, [3, 3], stride=stride,
+                               normalizer_fn=None, activation_fn=tf.nn.relu)
+        y = tf.multiply(x, 1-n) + tf.multiply(z, n)
+        return y
     
 
 def deatte(x, I, output_channel, stride=1):
     ''' Mask Residual Unit defined in SketchyGAN paper, deconv version '''
+    with tf.variable_scope("deattention"):
+        channel_x = x.shape[3]
 
-    channel_x = x.shape[3]
+        x_I = tf.concat([x, I], axis=3)
+        m = slim.conv2d(x_I, channel_x, [3, 3], stride=1,
+                               normalizer_fn=None, activation_fn=tf.sigmoid)
+        n = slim.conv2d_transpose(x_I, output_channel, [3, 3], stride=stride,
+                               normalizer_fn=None, activation_fn=tf.sigmoid)
 
-    x_I = tf.concat([x, I], axis=3)
-    m = slim.conv2d(x_I, channel_x, [3, 3], stride=1,
-                           normalizer_fn=None, activation_fn=tf.sigmoid)
-    n = slim.conv2d_transpose(x_I, output_channel, [3, 3], stride=stride,
-                           normalizer_fn=None, activation_fn=tf.sigmoid)
-
-    x_m_I = tf.concat([tf.multiply(x, m), I], axis=3)
-    if not stride == 1:
-        x = slim.conv2d_transpose(x, output_channel, [1, 1], stride=stride,
-                           normalizer_fn=None, activation_fn=None)
-    z = slim.conv2d_transpose(x_m_I, output_channel, [3, 3], stride=stride,
-                           normalizer_fn=None, activation_fn=tf.nn.relu)
-    y = tf.multiply(x, 1-n) + tf.multiply(z, n)
-    return y
+        x_m_I = tf.concat([tf.multiply(x, m), I], axis=3)
+        if not stride == 1:
+            x = slim.conv2d_transpose(x, output_channel, [1, 1], stride=stride,
+                               normalizer_fn=None, activation_fn=None)
+        z = slim.conv2d_transpose(x_m_I, output_channel, [3, 3], stride=stride,
+                               normalizer_fn=None, activation_fn=tf.nn.relu)
+        y = tf.multiply(x, 1-n) + tf.multiply(z, n)
+        return y
 
 
 def selfatt(input, I, input_channel, flag_I=True, sn=True, channel_fac=16, stride=1):
