@@ -31,7 +31,10 @@ def conv(batch_input, out_channels, stride=2, filter_size=4):
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
         #     => [batch, out_height, out_width, out_channels]
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT") 
-        conv = tf.nn.conv2d(input=padded_input, filter=w, [1, stride, stride, 1], padding="VALID") + b
+        conv = tf.nn.conv2d(input=padded_input, 
+                            filter=w, 
+                            strides=[1, stride, stride, 1], 
+                            padding="VALID") + b
         return conv
 
 def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
@@ -42,7 +45,24 @@ def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
         #     => [batch, out_height, out_width, out_channels]
         padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT")
-        conv = tf.nn.conv2d(input=padded_input, filter=spectral_norm(filter), [1, stride, stride, 1], padding="VALID") + b
+        conv = tf.nn.conv2d(input=padded_input, 
+                            filter=spectral_norm(w), 
+                            strides=[1, stride, stride, 1], 
+                            padding="VALID") + b
+        return conv
+
+def deconv_sn(batch_input, out_channels, stride=2, filter_size=4):
+    with tf.variable_scope("conv_sn"):
+        in_channels = batch_input.get_shape()[3]
+        w = tf.get_variable("kernel", [filter_size, filter_size, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))        
+        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
+        #     => [batch, out_height, out_width, out_channels]
+        conv = tf.nn.conv2d_transpose(input=batch_input, 
+                                      filter=spectral_norm(w), 
+                                      output_shape=[batch, in_height * stride, in_width * stride, out_channels], 
+                                      strides=[1, stride, stride, 1],
+                                      padding="SAME") + b
         return conv
 
 def conv_dialated_sn(batch_input, out_channels, rate=1, filter_size=4):
@@ -120,7 +140,11 @@ def deconv(batch_input, out_channels, filter_size=4, stride=2):
         b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))        
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
         #     => [batch, out_height, out_width, out_channels]
-        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * stride, in_width * stride, out_channels], [1, stride, stride, 1], padding="SAME") + b
+        conv = tf.nn.conv2d_transpose(batch_input, 
+                                      filter=spectral_norm(filter), 
+                                      output_shape=[batch, in_height * stride, in_width * stride, out_channels], 
+                                      strides=[1, stride, stride, 1], 
+                                      padding="SAME") + b
         return conv
 
 def block_dialated_sn(net, out_channels, dialation_rate=1, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):

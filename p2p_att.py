@@ -265,7 +265,42 @@ def read_tfrecord():
     ), iterator
 
 ##################### Generators #################################################
+
+def create_generator_resgan(generator_inputs, generator_outputs_channels):
+    """
+    """
+    # encoder
+    with tf.variable_scope("encoder"): 
+        net = conv_sn(generator_inputs, out_channels=a.ngf, stride=1, filter_size=7)
+        net = tf.contrib.layers.instance_norm(net)
+        net = tf.nn.relu(net)
+
+        net = conv_sn(generator_inputs, out_channels=a.ngf*2, stride=2, filter_size=4)
+        net = tf.contrib.layers.instance_norm(net)
+        net = tf.nn.relu(net)
+
+        net = conv_sn(generator_inputs, out_channels=a.ngf*4, stride=2, filter_size=4)
+        net = tf.contrib.layers.instance_norm(net)
+        net = tf.nn.relu(net)
+
+    with tf.variable_scope("middle"):
+        for _ in range(a.residual_blocks):
+            net = block_dialated_sn(net)
     
+    with tf.variable_scope("decoder"):
+        net = deconv_sn(net, out_channels=a.ngf*2, stride=2, filter_size=4)
+        net = tf.contrib.layers.instance_norm(net)
+        net = tf.nn.relu(net)
+
+        net = deconv_sn(net, out_channels=a.ngf, stride=2, filter_size=4)
+        net = tf.contrib.layers.instance_norm(net)
+        net = tf.nn.relu(net)
+
+        net = deconv_sn(net, out_channels=3, stride=1, filter_size=7)
+        net = tf.tanh(net)
+
+    return net
+
 def create_generator_selfatt_stack(generator_inputs, generator_outputs_channels, flag_I=True):
     """
     Replace conv in encoder-decoder network with MRU.
