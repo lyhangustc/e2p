@@ -22,16 +22,28 @@ def deprocess(image):
         return (image + 1) / 2
 
 
-def conv(batch_input, out_channels, stride):
+def conv(batch_input, out_channels, stride=2, filter_size=4):
     with tf.variable_scope("conv"):
         in_channels = batch_input.get_shape()[3]
-        filter = tf.get_variable("filter", [4, 4, in_channels, out_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        w = tf.get_variable("kernel", [filter_size, filter_size, in_channels, out_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))
+
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
         #     => [batch, out_height, out_width, out_channels]
-        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="CONSTANT")
-        conv = tf.nn.conv2d(padded_input, filter, [1, stride, stride, 1], padding="VALID")
+        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT")
+        conv = tf.nn.conv2d(input=padded_input, filter=w, [1, stride, stride, 1], padding="VALID") + b
         return conv
 
+def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
+    with tf.variable_scope("conv_sn"):
+        in_channels = batch_input.get_shape()[3]
+        w = tf.get_variable("kernel", [filter_size, filter_size, in_channels, out_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))        
+        # [batch, in_height, in_width, in_channels], [filter_width, filter_height, in_channels, out_channels]
+        #     => [batch, out_height, out_width, out_channels]
+        padded_input = tf.pad(batch_input, [[0, 0], [1, 1], [1, 1], [0, 0]], mode="REFLECT")
+        conv = tf.nn.conv2d(input=padded_input, filter=spectral_norm(filter), [1, stride, stride, 1], padding="VALID") + b
+        return conv
 
 def lrelu(x, a):
     with tf.name_scope("lrelu"):
@@ -58,14 +70,46 @@ def batchnorm(input):
         normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
         return normalized
 
+def spectral_norm(w, iteration=1):
+    with tf.variable_scope("spetralnorm"):
+        w_shape = w.shape.as_list()
+        w = tf.reshape(w, [-1, w_shape[-1]])
+
+        u = tf.get_variable("u", [1, w_shape[-1]], initializer=tf.random_normal_initializer(), trainable=False)
+
+        u_hat = u
+        v_hat = None
+        for i in range(iteration):
+            """
+            power iteration
+            Usually iteration = 1 will be enough
+            """
+            v_ = tf.matmul(u_hat, tf.transpose(w))
+            v_hat = tf.nn.l2_normalize(v_)
+
+            u_ = tf.matmul(v_hat, w)
+            u_hat = tf.nn.l2_normalize(u_)
+
+        u_hat = tf.stop_gradient(u_hat)
+        v_hat = tf.stop_gradient(v_hat)
+
+        sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+
+        with tf.control_dependencies([u.assign(u_hat)]):
+            w_norm = w / sigma
+            w_norm = tf.reshape(w_norm, w_shape)
+
+
+        return w_norm
 
 def deconv(batch_input, out_channels, filter_size=4, stride=2):
     with tf.variable_scope("deconv"):
         batch, in_height, in_width, in_channels = [int(d) for d in batch_input.get_shape()]
-        filter = tf.get_variable("filter", [filter_size, filter_size, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        w = tf.get_variable("kernel", [filter_size, filter_size, out_channels, in_channels], dtype=tf.float32, initializer=tf.random_normal_initializer(0, 0.02))
+        b = tf.get_variable("bias", [out_channels], initializer=tf.constant_initializer(0.0))        
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
         #     => [batch, out_height, out_width, out_channels]
-        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * stride, in_width * stride, out_channels], [1, stride, stride, 1], padding="SAME")
+        conv = tf.nn.conv2d_transpose(batch_input, filter, [batch, in_height * stride, in_width * stride, out_channels], [1, stride, stride, 1], padding="SAME") + b
         return conv
 
 
@@ -204,7 +248,7 @@ def atte(x, I, output_channel, stride=1):
                            normalizer_fn=None, activation_fn=tf.nn.relu)
     y = tf.multiply(x, 1-n) + tf.multiply(z, n)
     return y
-
+    
 
 def deatte(x, I, output_channel, stride=1):
     ''' Mask Residual Unit defined in SketchyGAN paper, deconv version '''
