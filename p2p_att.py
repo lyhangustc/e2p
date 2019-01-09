@@ -61,7 +61,7 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
-parser.add_argument("--generator", default="atte", choices=["res", "ir", "ed", "atte", "sa", "sa_I"])
+parser.add_argument("--generator", default="atte", choices=["res", "ir", "ed", "atte", "sa", "sa_I", "resgan"])
 parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "atte", "sa", "sa_I"])
 parser.add_argument("--input_type", default="df", choices=["edge", "df"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
@@ -268,6 +268,7 @@ def read_tfrecord():
 
 def create_generator_resgan(generator_inputs, generator_outputs_channels):
     """
+
     """
     # encoder
     with tf.variable_scope("encoder"): 
@@ -815,6 +816,8 @@ def create_model(inputs, targets):
                 outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
             elif a.generator == 'sa_I':
                 outputs, beta_list = create_generator_selfatt(inputs, out_channels)
+            elif a.generator == 'resgan':
+                outputs = create_generator_resgan(inputs, out_channels)
             
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
