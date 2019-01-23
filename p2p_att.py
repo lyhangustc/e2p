@@ -62,7 +62,7 @@ parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
 parser.add_argument("--generator", default="atte", choices=["res", "ir", "ed", "atte", "sa", "sa_I", "resgan"])
-parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "atte", "sa", "sa_I"])
+parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "atte", "sa", "sa_I", "resgan"])
 parser.add_argument("--input_type", default="df", choices=["edge", "df"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(double_D=True)
@@ -653,32 +653,45 @@ def create_generator_ed(generator_inputs, generator_outputs_channels):
 
 ##################### Discriminators ##############################################
     
-def create_discriminator_resgan(dicrim_inputs, discrim_targets):
+def create_discriminator_resgan(discrim_inputs, discrim_targets):
+    """
+    Discriminator architecture, same as EdgeConnect.
+    When SN is True, use_bias is set to False. Dont know why.
+    """
     layers = []
 
     # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
     net = tf.concat([discrim_inputs, discrim_targets], axis=3)
 
     # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
-    net = ops.conv(generator_inputs, channels=a.ngf, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_0')
+    net = ops.conv(net, channels=a.ngf, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_0')
     net = lrelu(net, 0.2)
     layers.append(net)
+    print(net.get_shape())
 
-    net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_1')
+    # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf*2]
+    net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_1')
     net = lrelu(net, 0.2)
     layers.append(net)
+    print(net.get_shape())
 
-    net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_2')
+    # layer_3: [batch, 64, 64, ndf*2] => [batch, 32, 32, ndf*4]
+    net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_2')
     net = lrelu(net, 0.2)
     layers.append(net)
+    print(net.get_shape())
 
-    net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, used_bias=False, sn=True, scope='discriminator_3')
+    # layer_4: [batch, 32, 32, ndf*4] => [batch, 31, 31, ndf*8]
+    net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, use_bias=False, sn=True, scope='discriminator_3')
     net = lrelu(net, 0.2)
     layers.append(net)
+    print(net.get_shape())
 
-    net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, used_bias=False, sn=True, scope='discriminator_4')
+    # layer_4: [batch, 31, 31, ndf*4] => [batch, 30, 30, 1]
+    net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, use_bias=False, sn=True, scope='discriminator_4')
     net = lrelu(net, 0.2)
     layers.append(net)
+    print(net.get_shape())
 
     output = tf.sigmoid(net)
 
@@ -712,12 +725,12 @@ def create_discriminator_conv(discrim_inputs, discrim_targets):
     # layer_5: [batch, 31, 31, ndf * 8] => [batch, 30, 30, 1]
     with tf.variable_scope("layer_%d" % (len(layers) + 1)):
         convolved = conv(rectified, out_channels=1, stride=1)
+        layers.append(convolved)
         output = tf.sigmoid(convolved)
-        layers.append(output)
+       
+    return output, layers
 
-    return layers[-1]
-
-def create_discriminator_global_conv(discrim_inputs, discrim_targets):   
+def create_discriminator_conv_global(discrim_inputs, discrim_targets):   
     n_layers = 6
     layers = []
 
@@ -748,81 +761,10 @@ def create_discriminator_global_conv(discrim_inputs, discrim_targets):
     # layer_8: [batch, 2, 2, ndf * 64] => [batch, 1, 1, 1]
     with tf.variable_scope("layer_%d_global" % (len(layers) + 1)):
         convolved = conv(rectified, out_channels=1, stride=1)
+        layers.append(convolved)
         output = tf.sigmoid(convolved)
-        layers.append(output)
-
-    return layers[-1]        
-
-def create_discriminator_sa(discrim_inputs, discrim_targets):
-    n_layers = 3
-    layers = []
-    
-    # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
-    input = tf.concat([discrim_inputs, discrim_targets], axis=3)
-
-    # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
-    with tf.variable_scope("layer_1"):
-        convolved = conv(input, a.ndf, stride=2)
-        rectified = lrelu(convolved, 0.2)
-        layers.append(rectified)
-
-    # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf * 2]
-    # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
-    # layer_4: [batch, 32, 32, ndf * 4] => [batch, 31, 31, ndf * 8]
-    for i in range(n_layers):
-        with tf.variable_scope("layer_%d" % (len(layers) + 1)):
-            out_channels = a.ndf * min(2**(i+1), 8)
-            stride = 1 if i == n_layers - 1 else 2  # last layer here has stride 1
-            convolved = conv(layers[-1], out_channels, stride=stride)
-            normalized = batchnorm(convolved)
-            rectified = lrelu(normalized, 0.2)
-            output = selfatt(rectified, tf.image.resize_images(discrim_inputs, rectified.shape[1:3]), out_channels, flag_I=a.discriminator=="sa_I", channel_fac=a.channel_fac)
-            layers.append(rectified)
-
-    # layer_5: [batch, 31, 31, ndf * 8] => [batch, 30, 30, 1]
-    with tf.variable_scope("layer_%d" % (len(layers) + 1)):
-        convolved = conv(rectified, out_channels=1, stride=1)
-        output = tf.sigmoid(convolved)
-        layers.append(output)
-
-    return layers[-1]
-
-def create_discriminator_global_sa(discrim_inputs, discrim_targets):
-    n_layers = 6
-    layers = []
-    
-    # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
-    input = tf.concat([discrim_inputs, discrim_targets], axis=3)
-
-    # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
-    with tf.variable_scope("layer_1_global"):
-        convolved = conv(input, a.ndf, stride=2)
-        rectified = lrelu(convolved, 0.2)
-        layers.append(rectified)
-
-    # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf * 2]
-    # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
-    # layer_4: [batch, 32, 32, ndf * 4] => [batch, 16, 16, ndf * 8]
-    # layer_5: [batch, 16, 16, ndf * 8] => [batch, 8,  8,  ndf * 16]
-    # layer_6: [batch, 8, 8, ndf * 16] => [batch, 4,  4,  ndf * 32]
-    # layer_7: [batch, 4, 4, ndf * 32] => [batch, 2,  2,  ndf * 64]
-    for i in range(n_layers):
-        with tf.variable_scope("layer_%d_global" % (len(layers) + 1)):
-            out_channels = a.ndf * 2**(i+1)
-            stride =  2  # last layer here has stride 1
-            convolved = conv(layers[-1], out_channels, stride=stride)
-            normalized = batchnorm(convolved)
-            rectified = lrelu(normalized, 0.2)
-            output = selfatt(rectified, tf.image.resize_images(discrim_inputs, rectified.shape[1:3]), out_channels, flag_I=a.discriminator=="sa_I", channel_fac=a.channel_fac)
-            layers.append(rectified)
-
-    # layer_8: [batch, 2, 2, ndf * 64] => [batch, 1, 1, 1]
-    with tf.variable_scope("layer_%d_global" % (len(layers) + 1)):
-        convolved = conv(rectified, out_channels=1, stride=1)
-        output = tf.sigmoid(convolved)
-        layers.append(output)
-
-    return layers[-1]
+        
+    return output, layers     
 
 ##################### Model #######################################################
     
@@ -857,46 +799,52 @@ def create_model(inputs, targets):
     with tf.device("/gpu:0"):
         if a.discriminator == "conv":
             create_discriminator = create_discriminator_conv
-            create_discriminator_global = create_discriminator_global_conv
-        elif a.discriminator == "sa" or a.disciminator == "sa_I":
-            create_discriminator = create_discriminator_sa
-            create_discriminator_global = create_discriminator_global_sa       
+            create_discriminator_global = create_discriminator_conv_global   
+        elif a.discriminator == "resgan":
+            create_discriminator = create_discriminator_resgan
+            create_discriminator_global = create_discriminator_conv_global 
         
+        ############### Discriminator outputs ###########################
         with tf.name_scope("real_discriminator_patch"):
             with tf.variable_scope("discriminator_patch"):
                 # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_real_patch = create_discriminator(inputs, targets)
+                predict_real_patch, feature_real_patch = create_discriminator(inputs, targets)
         
         with tf.name_scope("real_discriminator_global"):
             with tf.variable_scope("discriminator_global"):
                 # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
-                predict_real_global = create_discriminator_global(inputs, targets)
+                predict_real_global, feature_real_global = create_discriminator_global(inputs, targets)
         
         with tf.name_scope("fake_discriminator"):
             with tf.variable_scope("discriminator_patch", reuse=True):
                 # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_fake = create_discriminator(inputs, outputs)
+                predict_fake_patch, feature_fake_patch = create_discriminator(inputs, outputs)
                 
         with tf.name_scope("fake_discriminator_global"):
             with tf.variable_scope("discriminator_global", reuse=True):
                 # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
-                predict_fake_global = create_discriminator_global(inputs, outputs)            
-
+                predict_fake_global, feature_fake_global = create_discriminator_global(inputs, outputs)            
+        
+        ################### Loss #########################################
         with tf.name_scope("discriminator_loss"):
             # minimizing -tf.log will try to get inputs to 1
             # predict_real => 1
             # predict_fake => 0
-            discrim_loss = tf.reduce_mean(-(tf.log(predict_real_patch + EPS) \
+            discrim_loss = tf.reduce_mean(-( \
+                tf.log(predict_real_patch + EPS) \
                 + tf.log(predict_real_global + EPS) \
-                + tf.log(1 - predict_fake + EPS)))
+                + tf.log(1 - predict_fake_patch + EPS) \
+                + tf.log(1 - predict_fake_global + EPS) \
+                ))
        
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
-            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake + EPS))
+            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
             gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
 
+        ################## Train ops #########################################
         with tf.name_scope("discriminator_train"):
             discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
             discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
@@ -918,14 +866,14 @@ def create_model(inputs, targets):
 
     return Model(
         predict_real=predict_real_patch,
-        predict_fake=predict_fake,
+        predict_fake=predict_fake_patch,
         discrim_loss=ema.average(discrim_loss),
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
-        #beta_list=beta_list,
+        # beta_list=beta_list,
         beta_list=None,
         train=tf.group(update_losses, incr_global_step, gen_train),
     )
