@@ -74,6 +74,7 @@ parser.add_argument("--enc_atten", type=str, default="FTFFF")
 parser.add_argument("--dec_atten", type=str, default="FFFTF")
 parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
 parser.set_defaults(sn=True)
+parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -270,35 +271,36 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
     """
 
     """
-    # encoder
-    with tf.variable_scope("encoder"): 
-        net = conv_sn(generator_inputs, out_channels=a.ngf, stride=1, filter_size=7)
-        net = tf.contrib.layers.instance_norm(net)
-        net = tf.nn.relu(net)
+    with tf.device("/gpu:1"):
+        # encoder
+        with tf.variable_scope("encoder"): 
+            net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=True, scope='encoder_0')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
 
-        net = conv_sn(generator_inputs, out_channels=a.ngf*2, stride=2, filter_size=4)
-        net = tf.contrib.layers.instance_norm(net)
-        net = tf.nn.relu(net)
+            net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=True, sn=True, scope='encoder_1')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
 
-        net = conv_sn(generator_inputs, out_channels=a.ngf*4, stride=2, filter_size=4)
-        net = tf.contrib.layers.instance_norm(net)
-        net = tf.nn.relu(net)
+            net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=True, sn=True, scope='encoder_2')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
 
-    with tf.variable_scope("middle"):
-        for _ in range(a.residual_blocks):
-            net = block_dialated_sn(net)
+        with tf.variable_scope("middle"):
+            for i in range(a.residual_blocks):
+                net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=True, scope='resblock_%d' % i)
     
-    with tf.variable_scope("decoder"):
-        net = deconv_sn(net, out_channels=a.ngf*2, stride=2, filter_size=4)
-        net = tf.contrib.layers.instance_norm(net)
-        net = tf.nn.relu(net)
+        with tf.variable_scope("decoder"):
+            net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=True, scope='decoder_0')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
 
-        net = deconv_sn(net, out_channels=a.ngf, stride=2, filter_size=4)
-        net = tf.contrib.layers.instance_norm(net)
-        net = tf.nn.relu(net)
+            net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=True, scope='decoder_1')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
 
-        net = deconv_sn(net, out_channels=3, stride=1, filter_size=7)
-        net = tf.tanh(net)
+            net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=True, scope='decoder_2')
+            net = tf.tanh(net)
 
     return net
 
@@ -651,6 +653,37 @@ def create_generator_ed(generator_inputs, generator_outputs_channels):
 
 ##################### Discriminators ##############################################
     
+def create_discriminator_resgan(dicrim_inputs, discrim_targets):
+    layers = []
+
+    # 2x [batch, height, width, in_channels] => [batch, height, width, in_channels * 2]
+    net = tf.concat([discrim_inputs, discrim_targets], axis=3)
+
+    # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
+    net = ops.conv(generator_inputs, channels=a.ngf, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_0')
+    net = lrelu(net, 0.2)
+    layers.append(net)
+
+    net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_1')
+    net = lrelu(net, 0.2)
+    layers.append(net)
+
+    net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, used_bias=False, sn=True, scope='discriminator_2')
+    net = lrelu(net, 0.2)
+    layers.append(net)
+
+    net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, used_bias=False, sn=True, scope='discriminator_3')
+    net = lrelu(net, 0.2)
+    layers.append(net)
+
+    net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, used_bias=False, sn=True, scope='discriminator_4')
+    net = lrelu(net, 0.2)
+    layers.append(net)
+
+    output = tf.sigmoid(net)
+
+    return output, layers
+
 def create_discriminator_conv(discrim_inputs, discrim_targets):
     n_layers = 3
     layers = []
@@ -796,7 +829,7 @@ def create_discriminator_global_sa(discrim_inputs, discrim_targets):
 def create_model(inputs, targets):
     with tf.device("/gpu:1"):
         with tf.variable_scope("generator") as scope:
-            # float64 does not work for conv?
+            # float32 for TensorFlow
             inputs = tf.cast(inputs, tf.float32)
             targets = tf.cast(targets, tf.float32)
             out_channels = int(targets.get_shape()[-1])
@@ -856,7 +889,6 @@ def create_model(inputs, targets):
             discrim_loss = tf.reduce_mean(-(tf.log(predict_real_patch + EPS) \
                 + tf.log(predict_real_global + EPS) \
                 + tf.log(1 - predict_fake + EPS)))
-            
        
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
@@ -893,7 +925,8 @@ def create_model(inputs, targets):
         gen_loss_L1=ema.average(gen_loss_L1),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
-        beta_list=beta_list,
+        #beta_list=beta_list,
+        beta_list=None,
         train=tf.group(update_losses, incr_global_step, gen_train),
     )
 
@@ -1082,9 +1115,9 @@ def main():
     with tf.name_scope("convert_outputs"):
         converted_outputs = convert(outputs)
     
-    print("length of beta list..................", len(model.beta_list))
+    #print("length of beta list..................", len(model.beta_list))
     
-    if a.generator=='sa' or a.generator=='sa_I':
+    if 0:#a.generator=='sa' or a.generator=='sa_I':
         # convert beta matrices to image to show as attention maps
         with tf.name_scope("convert_beta"):
             converted_betas = tf.image.convert_image_dtype(model.beta_list[-1], dtype=tf.uint8, saturate=True)

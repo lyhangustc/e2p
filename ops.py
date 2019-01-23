@@ -14,11 +14,11 @@ weight_regularizer = None
 # Layer
 ##################################################################################
 
-def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='reflect', use_bias=True, sn=False, scope='conv_0'):
+def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='REFLECT', use_bias=True, sn=False, scope='conv_0'):
     with tf.variable_scope(scope):
-        if pad_type == 'zero' :
+        if pad_type == 'ZERO' :
             x = tf.pad(x, [[0, 0], [pad, pad], [pad, pad], [0, 0]])
-        if pad_type == 'reflect' :
+        if pad_type == 'REFLECT' :
             x = tf.pad(x, [[0, 0], [pad, pad], [pad, pad], [0, 0]], mode='REFLECT')
 
         if sn :
@@ -36,9 +36,30 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='reflect', use_bias=Tr
                                  kernel_regularizer=weight_regularizer,
                                  strides=stride, use_bias=use_bias)
 
+    return x
 
-        return x
+def conv_dilated(x, channels, kernel=4, rate=1, pad=0, pad_type='REFLECT', use_bias=True, sn=False, scope='conv_dilated_0'):
+    with tf.variable_scope(scope):
+        if pad_type == 'ZERO' :
+            x = tf.pad(x, [[0, 0], [rate, rate], [rate, rate], [0, 0]])
+        if pad_type == 'REFLECT' :
+            x = tf.pad(x, [[0, 0], [rate, rate], [rate, rate], [0, 0]], mode='REFLECT')
 
+        if sn :
+            w = tf.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,
+                                regularizer=weight_regularizer)
+            x = tf.nn.atrous_conv2d(value=x, filters=spectral_norm(w), rate=rate, padding="VALID")
+            if use_bias :
+                bias = tf.get_variable("bias", [channels], initializer=tf.constant_initializer(0.0))
+                x = tf.nn.bias_add(x, bias)
+
+        else :
+            x = tf.layers.conv2d(inputs=x, filters=channels,
+                                 kernel_size=kernel, kernel_initializer=weight_init,
+                                 kernel_regularizer=weight_regularizer,
+                                 strides=stride, use_bias=use_bias)
+
+    return x
 
 def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=False, scope='deconv_0'):
     with tf.variable_scope(scope):
@@ -63,7 +84,13 @@ def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=Fa
                                            kernel_size=kernel, kernel_initializer=weight_init, kernel_regularizer=weight_regularizer,
                                            strides=stride, padding=padding, use_bias=use_bias)
 
-        return x
+    return x
+
+def upconv():
+    """
+    upsampling + conv
+    """
+    return
 
 def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
     with tf.variable_scope(scope):
@@ -85,7 +112,7 @@ def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
         else :
             x = tf.layers.dense(x, units=units, kernel_initializer=weight_init, kernel_regularizer=weight_regularizer, use_bias=use_bias)
 
-        return x
+    return x
 
 def flatten(x) :
     return tf.layers.flatten(x)
@@ -108,7 +135,28 @@ def resblock(x_init, channels, use_bias=True, is_training=True, sn=False, scope=
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
             x = batch_norm(x, is_training)
 
-        return x + x_init
+    return x + x_init
+
+def resblock_dialated_sn(x_init, channels, kernel=3, rate=1, scale=1.0, use_bias=True, is_training=True, sn=False, reuse=False, scope='resblock'):
+    """Builds the a resnet block with dialated conv and spectral normalization."""
+    with tf.variable_scope(scope, reuse=reuse):
+        with tf.variable_scope('Branch_0'):
+            skip_connection = x_init
+        with tf.variable_scope('Branch_1'):
+            x = conv_dilated(x_init, channels=channels, kernel=kernel, rate=rate, pad=rate, sn=sn, scope='conv_dilated_0')
+            x = tf.contrib.layers.instance_norm(x)
+            x = relu(x)
+
+            x = conv_dilated(x, channels=channels, kernel=kernel, rate=rate, pad=rate, sn=sn, scope='conv_dilated_1')
+            x = tf.contrib.layers.instance_norm(x)
+
+        net = scale * x + skip_connection
+
+        # Remove ReLU at the end of the residual block
+        # http://torch.ch/blog/2016/02/04/resnets.html
+        #if activation_fn:
+        #     net = activation_fn(net)
+    return net
 
 ##################################################################################
 # Sampling
