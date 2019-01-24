@@ -35,7 +35,7 @@ def conv(batch_input, out_channels, stride=2, filter_size=4):
                             filter=w, 
                             strides=[1, stride, stride, 1], 
                             padding="VALID") + b
-        return conv
+    return conv
 
 def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
     with tf.variable_scope("conv_sn"):
@@ -49,7 +49,7 @@ def conv_sn(batch_input, out_channels, stride=2, filter_size=4):
                             filter=spectral_norm(w), 
                             strides=[1, stride, stride, 1], 
                             padding="VALID") + b
-        return conv
+    return conv
 
 def deconv_sn(batch_input, out_channels, stride=2, filter_size=4):
     with tf.variable_scope("conv_sn"):
@@ -63,7 +63,7 @@ def deconv_sn(batch_input, out_channels, stride=2, filter_size=4):
                                       output_shape=[batch, in_height * stride, in_width * stride, out_channels], 
                                       strides=[1, stride, stride, 1],
                                       padding="SAME") + b
-        return conv
+    return conv
 
 def conv_dialated_sn(batch_input, out_channels, rate=1, filter_size=4):
     with tf.variable_scope("conv_sn"):
@@ -74,7 +74,7 @@ def conv_dialated_sn(batch_input, out_channels, rate=1, filter_size=4):
         #     => [batch, out_height, out_width, out_channels]
         padded_input = tf.pad(batch_input, [[0, 0], [rate, rate], [rate, rate], [0, 0]], mode="REFLECT")
         conv = tf.nn.atrous_conv2d(input=padded_input, filter=spectral_norm(filter), rate=rate, padding="VALID") + b
-        return conv
+    return conv
 
 def lrelu(x, a):
     with tf.name_scope("lrelu"):
@@ -85,8 +85,8 @@ def lrelu(x, a):
 
         # this block looks like it has 2 inputs on the graph unless we do this
         x = tf.identity(x)
-        return (0.5 * (1 + a)) * x + (0.5 * (1 - a)) * tf.abs(x)
-
+        output = (0.5 * (1 + a)) * x + (0.5 * (1 - a)) * tf.abs(x)
+    return output
 
 def batchnorm(input):
     with tf.variable_scope("batchnorm"):
@@ -99,7 +99,7 @@ def batchnorm(input):
         mean, variance = tf.nn.moments(input, axes=[0, 1, 2], keep_dims=False)
         variance_epsilon = 1e-5
         normalized = tf.nn.batch_normalization(input, mean, variance, offset, scale, variance_epsilon=variance_epsilon)
-        return normalized
+    return normalized
 
 def spectral_norm(w, iteration=1):
     with tf.variable_scope("spetralnorm"):
@@ -131,7 +131,7 @@ def spectral_norm(w, iteration=1):
             w_norm = tf.reshape(w_norm, w_shape)
 
 
-        return w_norm
+    return w_norm
 
 def deconv(batch_input, out_channels, filter_size=4, stride=2):
     with tf.variable_scope("deconv"):
@@ -141,11 +141,11 @@ def deconv(batch_input, out_channels, filter_size=4, stride=2):
         # [batch, in_height, in_width, in_channels], [filter_width, filter_height, out_channels, in_channels]
         #     => [batch, out_height, out_width, out_channels]
         conv = tf.nn.conv2d_transpose(batch_input, 
-                                      filter=spectral_norm(filter), 
+                                      filter=w, 
                                       output_shape=[batch, in_height * stride, in_width * stride, out_channels], 
                                       strides=[1, stride, stride, 1], 
                                       padding="SAME") + b
-        return conv
+    return conv
 
 def block_dialated_sn(net, out_channels, dialation_rate=1, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
     """Builds the a resnet block with dialated conv and spectral normalization."""

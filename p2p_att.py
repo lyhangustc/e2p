@@ -54,10 +54,12 @@ parser.add_argument("--no_random_crop", dest="random_crop", action="store_false"
 parser.set_defaults(random_crop=True)
 parser.add_argument("--monochrome", dest="monochrome", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(monochrome=False)
-parser.add_argument("--lr", type=float, default=0.0002, help="initial learning rate for adam")
+parser.add_argument("--lr_gen", type=float, default=0.0002, help="initial learning rate for adam")
+parser.add_argument("--lr_discrim", type=float, default=0.00002, help="initial learning rate for adam")
 parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
+parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
 
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
@@ -74,7 +76,10 @@ parser.add_argument("--enc_atten", type=str, default="FTFFF")
 parser.add_argument("--dec_atten", type=str, default="FFFTF")
 parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
 parser.set_defaults(sn=True)
+parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use spectral normalization")
+parser.set_defaults(fm=True)
 parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
+parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -86,7 +91,7 @@ NUM_SAVE_IMAGE = 100
 
 
 Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count, steps_per_epoch")
-Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_grads_and_vars, train")
+Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 seed = random.randint(0, 2**31 - 1)
 
 ##################### Data #####################################################
@@ -842,24 +847,30 @@ def create_model(inputs, targets):
             # abs(targets - outputs) => 0
             gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-            gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight
+            
 
+        with tf.name_scope("generator_feature_matching_loss"):
+            gen_loss_fm = 0
+            for i in range(a.num_feature_matching):
+                gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
+
+        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight + gen_loss_fm * a.fm_weight
         ################## Train ops #########################################
         with tf.name_scope("discriminator_train"):
             discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
-            discrim_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+            discrim_optim = tf.train.AdamOptimizer(a.lr_discrim, a.beta1)
             discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
             discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
          
         with tf.name_scope("generator_train"):
             with tf.control_dependencies([discrim_train]):
                 gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
-                gen_optim = tf.train.AdamOptimizer(a.lr, a.beta1)
+                gen_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
                 gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
                 gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        update_losses = ema.apply([discrim_loss, gen_loss_GAN, gen_loss_L1])
+        update_losses = ema.apply([discrim_loss, gen_loss, gen_loss_GAN, gen_loss_fm, gen_loss_L1])
 
         global_step = tf.contrib.framework.get_or_create_global_step()
         incr_global_step = tf.assign(global_step, global_step+1)
@@ -871,6 +882,7 @@ def create_model(inputs, targets):
         discrim_grads_and_vars=discrim_grads_and_vars,
         gen_loss_GAN=ema.average(gen_loss_GAN),
         gen_loss_L1=ema.average(gen_loss_L1),
+        gen_loss_fm=ema.average(gen_loss_fm),
         gen_grads_and_vars=gen_grads_and_vars,
         outputs=outputs,
         # beta_list=beta_list,
@@ -1100,6 +1112,7 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
+    tf.summary.scalar("generator_loss_fm", model.gen_loss_fm)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -1179,6 +1192,7 @@ def main():
                     fetches["discrim_loss"] = model.discrim_loss
                     fetches["gen_loss_GAN"] = model.gen_loss_GAN
                     fetches["gen_loss_L1"] = model.gen_loss_L1
+                    fetches["gen_loss_fm"] = model.gen_loss_fm
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -1211,6 +1225,7 @@ def main():
                     print("discrim_loss", results["discrim_loss"])
                     print("gen_loss_GAN", results["gen_loss_GAN"])
                     print("gen_loss_L1", results["gen_loss_L1"])
+                    print("gen_loss_fm", results["gen_loss_fm"])
 
                 if should(a.save_freq):
                     print("saving model")

@@ -1,0 +1,77 @@
+Time is Wed Jan 23 22:04:41 CST 2019
+Directory is /gdata/liyh/project/e2p
+This job runs on following nodes:
+G110
+G110-gpu1
+G110-gpu0
+Time is Wed Jan 23 22:05:40 CST 2019
+Directory is /gdata/liyh/project/e2p
+This job runs on following nodes:
+G110
+G110-gpu1
+G110-gpu0
+Time is Wed Jan 23 22:09:41 CST 2019
+Directory is /gdata/liyh/project/e2p
+This job runs on following nodes:
+G110
+G110-gpu1
+G110-gpu0
+Time is Wed Jan 23 22:18:41 CST 2019
+Directory is /gdata/liyh/project/e2p/summit/resgan
+This job runs on following nodes:
+G110
+G110-gpu7
+G110-gpu6
+aspect_ratio = 1.0
+batch_size = 8
+beta1 = 0.5
+channel_fac = 16
+checkpoint = None
+dec_atten = FFFTF
+discriminator = conv
+display_freq = 1000
+double_D = True
+enc_atten = FTFFF
+evaluate_freq = 5000
+flip = True
+fm_weight = 1.0
+gan_weight = 1.0
+generator = ed
+input_dir = /gdata/liyh/data/CelebA/data/train
+input_type = df
+l1_weight = 100.0
+load_tfrecord = True
+lr_discrim = 2e-05
+lr_gen = 0.0002
+max_epochs = 2000
+max_steps = None
+mode = train
+monochrome = False
+ndf = 64
+ngf = 64
+num_examples = 141633
+num_feature_matching = 3
+num_unet = 10
+output_dir = /gdata/liyh/data/CelebA/checkpoint/resgan_df/exp-0004
+output_filetype = png
+progress_freq = 50
+random_crop = True
+residual_blocks = 8
+save_freq = 5000
+scale_size = 286
+seed = 1475727200
+sn = True
+summary_freq = 100
+target_size = 256
+trace_freq = 0
+which_direction = AtoB
+Tensor("ParseSingleExample/ParseSingleExample:4", shape=(), dtype=int64) Tensor("ParseSingleExample/ParseSingleExample:7", shape=(), dtype=int64)
+examples count = 1
+Time is Thu Jan 24 10:07:47 CST 2019
+Directory is /gdata/liyh/project/e2p/summit/resgan
+This job runs on following nodes:
+G115
+G115-gpu7
+G115-gpu6
+G115-gpu5
+G115-gpu4
