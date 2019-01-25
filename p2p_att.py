@@ -19,6 +19,7 @@ import warnings
 from functools import partial
 from nets import resnet_utils
 from models import *
+from vgg import * 
 import ops
 
 slim = tf.contrib.slim
@@ -279,32 +280,32 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
     with tf.device("/gpu:1"):
         # encoder
         with tf.variable_scope("encoder"): 
-            net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=True, scope='encoder_0')
+            net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='encoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
-            net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=True, sn=True, scope='encoder_1')
+            net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_1')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
-            net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=True, sn=True, scope='encoder_2')
+            net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_2')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
         with tf.variable_scope("middle"):
             for i in range(a.residual_blocks):
-                net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=True, scope='resblock_%d' % i)
+                net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
         with tf.variable_scope("decoder"):
-            net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=True, scope='decoder_0')
+            net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=v, scope='decoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
-            net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=True, scope='decoder_1')
+            net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
-            net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=True, scope='decoder_2')
+            net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
             net = tf.tanh(net)
 
     return net
@@ -669,31 +670,31 @@ def create_discriminator_resgan(discrim_inputs, discrim_targets):
     net = tf.concat([discrim_inputs, discrim_targets], axis=3)
 
     # layer_1: [batch, 256, 256, in_channels * 2] => [batch, 128, 128, ndf]
-    net = ops.conv(net, channels=a.ngf, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_0')
+    net = ops.conv(net, channels=a.ngf, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_0')
     net = lrelu(net, 0.2)
     layers.append(net)
     print(net.get_shape())
 
     # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf*2]
-    net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_1')
+    net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_1')
     net = lrelu(net, 0.2)
     layers.append(net)
     print(net.get_shape())
 
     # layer_3: [batch, 64, 64, ndf*2] => [batch, 32, 32, ndf*4]
-    net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=False, sn=True, scope='discriminator_2')
+    net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_2')
     net = lrelu(net, 0.2)
     layers.append(net)
     print(net.get_shape())
 
     # layer_4: [batch, 32, 32, ndf*4] => [batch, 31, 31, ndf*8]
-    net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, use_bias=False, sn=True, scope='discriminator_3')
+    net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_3')
     net = lrelu(net, 0.2)
     layers.append(net)
     print(net.get_shape())
 
     # layer_4: [batch, 31, 31, ndf*4] => [batch, 30, 30, 1]
-    net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, use_bias=False, sn=True, scope='discriminator_4')
+    net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_4')
     net = lrelu(net, 0.2)
     layers.append(net)
     print(net.get_shape())
@@ -773,6 +774,16 @@ def create_discriminator_conv_global(discrim_inputs, discrim_targets):
 
 ##################### Model #######################################################
     
+def create_vgg():
+    """
+    Build a vgg19 model.
+    logits: the output of the vgg19 model
+    endpoints: the output of some layers
+    """
+    with tf.name_scope("vgg_network"):
+        logits, endpoints = vgg_19(images, num_classes=class_num,global_pool=True)
+    return logits, endpoints
+
 def create_model(inputs, targets):
     with tf.device("/gpu:1"):
         with tf.variable_scope("generator") as scope:
@@ -851,8 +862,9 @@ def create_model(inputs, targets):
 
         with tf.name_scope("generator_feature_matching_loss"):
             gen_loss_fm = 0
-            for i in range(a.num_feature_matching):
-                gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
+            if a.fm:
+                for i in range(a.num_feature_matching):
+                    gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
 
         gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight + gen_loss_fm * a.fm_weight
         ################## Train ops #########################################
