@@ -81,6 +81,7 @@ parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use
 parser.set_defaults(fm=True)
 parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
 parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
+parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -774,14 +775,14 @@ def create_discriminator_conv_global(discrim_inputs, discrim_targets):
 
 ##################### Model #######################################################
     
-def create_vgg():
+def create_vgg(images, num_class=1000):
     """
     Build a vgg19 model.
     logits: the output of the vgg19 model
     endpoints: the output of some layers
     """
     with tf.name_scope("vgg_network"):
-        logits, endpoints = vgg_19(images, num_classes=class_num,global_pool=True)
+        logits, endpoints = vgg_19(images, num_classes=1000, global_pool=True)
     return logits, endpoints
 
 def create_model(inputs, targets):
@@ -809,7 +810,13 @@ def create_model(inputs, targets):
                 outputs, beta_list = create_generator_selfatt(inputs, out_channels)
             elif a.generator == 'resgan':
                 outputs = create_generator_resgan(inputs, out_channels)
-            
+        
+        with tf.name_scope("real_vgg") as scope:
+            with tf.variable_scope("vgg"):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+        with tf.name_scope("fake_vgg") as scope:
+            with tf.variable_scope("vgg", reuse=True):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
     with tf.device("/gpu:0"):
@@ -852,21 +859,23 @@ def create_model(inputs, targets):
                 + tf.log(1 - predict_fake_patch + EPS) \
                 + tf.log(1 - predict_fake_global + EPS) \
                 ))
-       
+        
+        gen_loss = 0
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
             gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-            
+            gen_loss += gen_loss_GAN * a.gan_weight
+            gen_loss += gen_loss_L1 * a.l1_weight
 
         with tf.name_scope("generator_feature_matching_loss"):
             gen_loss_fm = 0
             if a.fm:
                 for i in range(a.num_feature_matching):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
+                gen_loss += gen_loss_fm * a.fm_weight
 
-        gen_loss = gen_loss_GAN * a.gan_weight + gen_loss_L1 * a.l1_weight + gen_loss_fm * a.fm_weight
         ################## Train ops #########################################
         with tf.name_scope("discriminator_train"):
             discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
@@ -1134,7 +1143,6 @@ def main():
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
     saver = tf.train.Saver(max_to_keep=1)
-
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
     sess_config = tf.ConfigProto(allow_soft_placement=True)
