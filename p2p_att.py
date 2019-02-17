@@ -298,15 +298,20 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
                 net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
         with tf.variable_scope("decoder"):
-            net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=v, scope='decoder_0')
+            #net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
+            net, _ = selfatt(net, tf.image.resize_images(generator_inputs, output.shape[1:3]), a.ngf*2, flag_I=False, channel_fac=a.channel_fac)
+
+            #net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
+            net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
 
-            net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-
-            net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
+            #net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
+            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
+            #net = ops.upconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
             net = tf.tanh(net)
 
     return net

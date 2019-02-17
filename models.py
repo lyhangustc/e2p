@@ -169,7 +169,7 @@ def block_dialated_sn(net, out_channels, dialation_rate=1, scale=1.0, activation
         # http://torch.ch/blog/2016/02/04/resnets.html
         #if activation_fn:
         #     net = activation_fn(net)
-        return net
+    return net
 
 def bottleneck(inputs, depth, depth_bottleneck, stride, rate=1,
                outputs_collections=None, scope=None):
@@ -215,7 +215,7 @@ def bottleneck(inputs, depth, depth_bottleneck, stride, rate=1,
 
     output = shortcut + residual
 
-    return output
+  return output
 
 
 def blockA(net, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
@@ -295,7 +295,8 @@ def atte(x, I, output_channel, stride=1):
         z = slim.conv2d(x_m_I, output_channel, [3, 3], stride=stride,
                                normalizer_fn=None, activation_fn=tf.nn.relu)
         y = tf.multiply(x, 1-n) + tf.multiply(z, n)
-        return y
+        
+    return y
     
 
 def deatte(x, I, output_channel, stride=1):
@@ -316,7 +317,8 @@ def deatte(x, I, output_channel, stride=1):
         z = slim.conv2d_transpose(x_m_I, output_channel, [3, 3], stride=stride,
                                normalizer_fn=None, activation_fn=tf.nn.relu)
         y = tf.multiply(x, 1-n) + tf.multiply(z, n)
-        return y
+        
+    return y
 
 
 def selfatt(input, I, input_channel, flag_I=True, sn=True, channel_fac=16, stride=1):

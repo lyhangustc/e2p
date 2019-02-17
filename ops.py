@@ -86,11 +86,16 @@ def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=Fa
 
     return x
 
-def upconv():
+def upconv(x, channels, kernel=3, stride=2, pad=1, use_bias=True, sn=False, scope='upconv_0'):
     """
     upsampling + conv
     """
-    return
+    with tf.variable_scope(scope):
+        x = up_sample(x, scale_factor=stride)
+        x = conv(x, channels=channels, kernel=kernel, stride=1, pad=1, use_bias=use_bias, sn=sn, scope=scope)
+    return x
+
+
 
 def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
     with tf.variable_scope(scope):
