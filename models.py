@@ -344,5 +344,5 @@ def selfatt(input, I, input_channel, flag_I=True, sn=True, channel_fac=16, strid
         o = tf.reshape(o, shape=input.shape) # [bs, h, w, C]
         input = gamma * o + input
 
-    print("Shape of beta...........................................",beta.get_shape())
+    print("Shape of beta...........................................",beta.get_shape(), input.get_shape())
     return input #, beta

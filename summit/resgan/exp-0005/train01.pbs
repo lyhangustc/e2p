@@ -1,7 +1,7 @@
-#PBS -N exp-0005_010_q2
+#PBS -N exp-0005_001_q2
 #PBS -l nodes=1:gpus=4:q
-#PBS -o /gdata/liyh/project/e2p/summit/resgan/exp-0005/out_file_0005_010_q2.out
-#PBS -e /gdata/liyh/project/e2p/summit/resgan/exp-0005/err_file_0005_010_q2.err
+#PBS -o /gdata/liyh/project/e2p/summit/resgan/exp-0005/out_file_0005_001_q2.out
+#PBS -e /gdata/liyh/project/e2p/summit/resgan/exp-0005/err_file_0005_001_q2.err
 #PBS -r y
 
 cd $PBS_O_WORKDIR

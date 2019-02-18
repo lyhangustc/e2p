@@ -1,0 +1,108 @@
+Time is Mon Feb 18 00:34:26 CST 2019
+Directory is /gdata/liyh/project/e2p
+This job runs on following nodes:
+G113
+G113-gpu7
+G113-gpu6
+aspect_ratio = 1.0
+batch_size = 8
+beta1 = 0.5
+channel_fac = 16
+checkpoint = None
+dec_atten = FFFTF
+discriminator = resgan
+display_freq = 1000
+double_D = True
+enc_atten = FTFFF
+evaluate_freq = 5000
+flip = True
+fm = True
+fm_weight = 1.0
+gan_weight = 1.0
+generator = resgan
+input_dir = /gdata/liyh/data/CelebA/data/train
+input_type = df
+l1_weight = 100.0
+load_tfrecord = True
+lr_discrim = 2e-05
+lr_gen = 0.0002
+max_epochs = 2000
+max_steps = None
+mode = train
+monochrome = False
+ndf = 64
+ngf = 64
+num_examples = 141633
+num_feature_matching = 3
+num_unet = 10
+num_vgg_class = 1000
+output_dir = /gdata/liyh/data/CelebA/checkpoint/resgan_df/exp-0005_011
+output_filetype = png
+progress_freq = 50
+random_crop = True
+residual_blocks = 8
+save_freq = 5000
+scale_size = 286
+seed = 1236113525
+sn = True
+summary_freq = 100
+target_size = 256
+trace_freq = 0
+which_direction = AtoB
+Tensor("ParseSingleExample/ParseSingleExample:4", shape=(), dtype=int64) Tensor("ParseSingleExample/ParseSingleExample:7", shape=(), dtype=int64)
+examples count = 1
+Shape of beta........................................... (8, 16384, 16384)
+Time is Mon Feb 18 00:37:25 CST 2019
+Directory is /gdata/liyh/project/e2p
+This job runs on following nodes:
+G113
+G113-gpu7
+G113-gpu6
+aspect_ratio = 1.0
+batch_size = 8
+beta1 = 0.5
+channel_fac = 16
+checkpoint = None
+dec_atten = FFFTF
+discriminator = resgan
+display_freq = 1000
+double_D = True
+enc_atten = FTFFF
+evaluate_freq = 5000
+flip = True
+fm = True
+fm_weight = 1.0
+gan_weight = 1.0
+generator = resgan
+input_dir = /gdata/liyh/data/CelebA/data/train
+input_type = df
+l1_weight = 100.0
+load_tfrecord = True
+lr_discrim = 2e-05
+lr_gen = 0.0002
+max_epochs = 2000
+max_steps = None
+mode = train
+monochrome = False
+ndf = 64
+ngf = 64
+num_examples = 141633
+num_feature_matching = 3
+num_unet = 10
+num_vgg_class = 1000
+output_dir = /gdata/liyh/data/CelebA/checkpoint/resgan_df/exp-0005_011
+output_filetype = png
+progress_freq = 50
+random_crop = True
+residual_blocks = 8
+save_freq = 5000
+scale_size = 286
+seed = 635421979
+sn = True
+summary_freq = 100
+target_size = 256
+trace_freq = 0
+which_direction = AtoB
+Tensor("ParseSingleExample/ParseSingleExample:4", shape=(), dtype=int64) Tensor("ParseSingleExample/ParseSingleExample:7", shape=(), dtype=int64)
+examples count = 1
+Shape of beta........................................... (8, 16384, 16384)

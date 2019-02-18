@@ -279,7 +279,6 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
 
     """
     with tf.device("/gpu:1"):
-        # encoder
         with tf.variable_scope("encoder"): 
             net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='encoder_0')
             net = tf.contrib.layers.instance_norm(net)
@@ -297,17 +296,21 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
             for i in range(a.residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
+    with tf.device("/gpu:2"):
         with tf.variable_scope("decoder"):
             #net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
             net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
-            net, _ = selfatt(net, tf.image.resize_images(generator_inputs, output.shape[1:3]), a.ngf*2, flag_I=False, channel_fac=a.channel_fac)
+            #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+            #                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
             #net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
+            net = tf.nn.relu(net)            
+            net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
+                            input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
             #net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
             net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
@@ -791,31 +794,32 @@ def create_vgg(images, num_class=1000):
     return logits, endpoints
 
 def create_model(inputs, targets):
-    with tf.device("/gpu:1"):
-        with tf.variable_scope("generator") as scope:
-            # float32 for TensorFlow
-            inputs = tf.cast(inputs, tf.float32)
-            targets = tf.cast(targets, tf.float32)
-            out_channels = int(targets.get_shape()[-1])
-            if a.generator == 'res':
-                outputs = create_generator_resnet(inputs, out_channels)
-                beta_list = []
-            elif a.generator == 'ir':
-                outputs = create_generator_irnet(inputs, out_channels)
-                beta_list = []
-            elif a.generator == 'ed':
-                outputs = create_generator_ed(inputs, out_channels)
-                beta_list = []
-            elif a.generator == 'atte':
-                outputs = create_generator_atte(inputs, out_channels)
-                beta_list = []
-            elif a.generator == 'sa':
-                outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
-            elif a.generator == 'sa_I':
-                outputs, beta_list = create_generator_selfatt(inputs, out_channels)
-            elif a.generator == 'resgan':
-                outputs = create_generator_resgan(inputs, out_channels)
-        
+    #with tf.device("/gpu:1"):
+    with tf.variable_scope("generator") as scope:
+        # float32 for TensorFlow
+        inputs = tf.cast(inputs, tf.float32)
+        targets = tf.cast(targets, tf.float32)
+        out_channels = int(targets.get_shape()[-1])
+        if a.generator == 'res':
+            outputs = create_generator_resnet(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'ir':
+            outputs = create_generator_irnet(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'ed':
+            outputs = create_generator_ed(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'atte':
+            outputs = create_generator_atte(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'sa':
+            outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
+        elif a.generator == 'sa_I':
+            outputs, beta_list = create_generator_selfatt(inputs, out_channels)
+        elif a.generator == 'resgan':
+            outputs = create_generator_resgan(inputs, out_channels)
+
+    with tf.device("/gpu:0"):    
         with tf.name_scope("real_vgg") as scope:
             with tf.variable_scope("vgg"):
                 real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)

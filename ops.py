@@ -95,7 +95,31 @@ def upconv(x, channels, kernel=3, stride=2, pad=1, use_bias=True, sn=False, scop
         x = conv(x, channels=channels, kernel=kernel, stride=1, pad=1, use_bias=use_bias, sn=sn, scope=scope)
     return x
 
+def selfatt(input, condition, input_channel, flag_condition=True, sn=True, channel_fac=16, stride=1, scope='attention_0'):
+    ''' Use spectral normalization after every convolution layers '''
+    with tf.variable_scope(scope):
+        ch = input.get_shape().as_list()[3]
+        if flag_condition == True:
+            x = tf.concat([input, condition], axis=3)
+        else:
+            x = input
 
+        f = conv(x, ch // channel_fac, kernel=1, stride=1, sn=sn, scope='f_conv') # [bs, h, w, c']
+        g = conv(x, ch // channel_fac, kernel=1, stride=1, sn=sn, scope='g_conv') # [bs, h, w, c']
+        h = conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv') # [bs, h, w, c]
+
+        # N = h * w
+        s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, N]
+
+        beta = tf.nn.softmax(s)  # attention map
+
+        o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
+        gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+        o = tf.reshape(o, shape=input.shape) # [bs, h, w, C]
+        output = gamma * o + input
+
+    print("Shape of beta...........................................",beta.get_shape(), output.get_shape())
+    return output #, beta
 
 def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
     with tf.variable_scope(scope):
