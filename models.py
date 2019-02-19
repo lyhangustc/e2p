@@ -278,7 +278,7 @@ def blockC(net, scale=1.0, activation_fn=tf.nn.relu, scope=None, reuse=None):
       net = activation_fn(net)
   return net
 
-def atte(x, I, output_channel, stride=1):
+def mru(x, I, output_channel, stride=1):
     with tf.variable_scope("attention"):
         channel_x = x.shape[3]
 
@@ -296,10 +296,9 @@ def atte(x, I, output_channel, stride=1):
                                normalizer_fn=None, activation_fn=tf.nn.relu)
         y = tf.multiply(x, 1-n) + tf.multiply(z, n)
         
-    return y
-    
+    return y  
 
-def deatte(x, I, output_channel, stride=1):
+def demru(x, I, output_channel, stride=1):
     ''' Mask Residual Unit defined in SketchyGAN paper, deconv version '''
     with tf.variable_scope("deattention"):
         channel_x = x.shape[3]

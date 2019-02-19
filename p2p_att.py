@@ -64,8 +64,8 @@ parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feat
 
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
-parser.add_argument("--generator", default="atte", choices=["res", "ir", "ed", "atte", "sa", "sa_I", "resgan"])
-parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "atte", "sa", "sa_I", "resgan"])
+parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
+parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
 parser.add_argument("--input_type", default="df", choices=["edge", "df"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(double_D=True)
@@ -504,7 +504,7 @@ def create_generator_selfatt(generator_inputs, generator_outputs_channels, flag_
 
     return layers[-1], beta_list
 
-def create_generator_atte(generator_inputs, generator_outputs_channels):
+def create_generator_mru(generator_inputs, generator_outputs_channels):
     """
     Replace conv in encoder-decoder network with MRU.
     First and last layer still use conv and deconv.
@@ -533,7 +533,7 @@ def create_generator_atte(generator_inputs, generator_outputs_channels):
     for out_channels in layer_specs:
         with tf.variable_scope("encoder_%d" % (len(layers) + 1)):
             # [batch, in_height, in_width, in_channels] => [batch, in_height/2, in_width/2, out_channels]
-            output = atte(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), out_channels, stride=2)
+            output = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), out_channels, stride=2)
             layers.append(output)
 
     layer_specs = [
@@ -560,7 +560,7 @@ def create_generator_atte(generator_inputs, generator_outputs_channels):
                 input = tf.concat([layers[-1], layers[skip_layer]], axis=3)
 
             # [batch, in_height, in_width, in_channels] => [batch, in_height*2, in_width*2, out_channels]
-            output = deatte(input,  tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+            output = demru(input,  tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
             
             
             if dropout > 0.0:
@@ -809,8 +809,8 @@ def create_model(inputs, targets):
         elif a.generator == 'ed':
             outputs = create_generator_ed(inputs, out_channels)
             beta_list = []
-        elif a.generator == 'atte':
-            outputs = create_generator_atte(inputs, out_channels)
+        elif a.generator == 'mru':
+            outputs = create_generator_mru(inputs, out_channels)
             beta_list = []
         elif a.generator == 'sa':
             outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
