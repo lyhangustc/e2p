@@ -21,7 +21,6 @@ def deprocess(image):
         # [-1, 1] => [0, 1]
         return (image + 1) / 2
 
-
 def conv(batch_input, out_channels, stride=2, filter_size=4):
     with tf.variable_scope("conv"):
         in_channels = batch_input.get_shape()[3]

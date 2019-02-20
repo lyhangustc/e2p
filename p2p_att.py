@@ -82,6 +82,11 @@ parser.set_defaults(fm=True)
 parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
 parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
 parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
+parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
+parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator")
+parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
+parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
+parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -274,11 +279,12 @@ def read_tfrecord():
 
 ##################### Generators #################################################
 
-def create_generator_resgan(generator_inputs, generator_outputs_channels):
+def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_idx=0):
     """
+    gpu_idx: gpu index, use gpu with index of gpu_idx and gpu_idx+1
 
     """
-    with tf.device("/gpu:1"):
+    with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("encoder"): 
             net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='encoder_0')
             net = tf.contrib.layers.instance_norm(net)
@@ -296,14 +302,15 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels):
             for i in range(a.residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
-    with tf.device("/gpu:2"):
+    with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("decoder"):
             #net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
             net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
-            net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                            input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+            # self-attention layer
+            #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+            #                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
             #net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
@@ -793,6 +800,222 @@ def create_vgg(images, num_class=1000):
         logits, endpoints = vgg_19(images, num_classes=1000, global_pool=True)
     return logits, endpoints
 
+def average_gradients(tower_grads):
+  """Calculate the average gradient for each shared variable across all towers.
+
+  Note that this function provides a synchronization point across all towers.
+
+  Args:
+    tower_grads: List of lists of (gradient, variable) tuples. The outer list
+      is over individual gradients. The inner list is over the gradient
+      calculation for each tower.
+  Returns:
+     List of pairs of (gradient, variable) where the gradient has been averaged
+     across all towers.
+  """
+  average_grads = []
+  for grad_and_vars in zip(*tower_grads):
+    # Note that each grad_and_vars looks like the following:
+    #   ((grad0_gpu0, var0_gpu0), ... , (grad0_gpuN, var0_gpuN))
+    grads = []
+    for g, _ in grad_and_vars:
+      # Add 0 dimension to the gradients to represent the tower.
+      expanded_g = tf.expand_dims(g, 0)
+
+      # Append on a 'tower' dimension which we will average over below.
+      grads.append(expanded_g)
+
+    # Average over the 'tower' dimension.
+    grad = tf.concat(axis=0, values=grads)
+    grad = tf.reduce_mean(grad, 0)
+
+    # Keep in mind that the Variables are redundant because they are shared
+    # across towers. So .. we will just return the first tower's pointer to
+    # the Variable.
+    v = grad_and_vars[0][1]
+    grad_and_var = (grad, v)
+    average_grads.append(grad_and_var)
+  return average_grads
+
+def convert(image):
+    if a.aspect_ratio != 1.0:
+        # upscale to correct aspect ratio
+        size = [a.target_size, int(round(a.target_size * a.aspect_ratio))]
+        image = tf.image.resize_images(image, size=size, method=tf.image.ResizeMethod.BICUBIC)
+
+    return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
+
+def tower_loss(inputs, targets, gpu_idx, scope):
+    with tf.variable_scope("generator") as scope:
+        # float32 for TensorFlow
+        inputs = tf.cast(inputs, tf.float32)
+        targets = tf.cast(targets, tf.float32)
+        out_channels = int(targets.get_shape()[-1])
+        outputs = create_generator_resgan(generator_inputs=inputs, generator_outputs_channels=out_channels,gpu_idx=gpu_idx+1)
+
+    with tf.device("/gpu:%d" % (gpu_idx)):    
+        with tf.name_scope("real_vgg") as scope:
+            with tf.variable_scope("vgg"):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+        with tf.name_scope("fake_vgg") as scope:
+            with tf.variable_scope("vgg", reuse=True):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+
+    # create two copies of discriminator, one for real pairs and one for fake pairs
+    # they share the same underlying variables
+    with tf.device("/gpu:%d" % (gpu_idx)):
+        if a.discriminator == "conv":
+            create_discriminator = create_discriminator_conv
+            create_discriminator_global = create_discriminator_conv_global   
+        elif a.discriminator == "resgan":
+            create_discriminator = create_discriminator_resgan
+            create_discriminator_global = create_discriminator_conv_global 
+        
+        ############### Discriminator outputs ###########################
+        with tf.name_scope("real_discriminator_patch"):
+            with tf.variable_scope("discriminator_patch"):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_real_patch, feature_real_patch = create_discriminator(inputs, targets)
+        
+        with tf.name_scope("real_discriminator_global"):
+            with tf.variable_scope("discriminator_global"):
+                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
+                predict_real_global, feature_real_global = create_discriminator_global(inputs, targets)
+        
+        with tf.name_scope("fake_discriminator"):
+            with tf.variable_scope("discriminator_patch", reuse=True):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_fake_patch, feature_fake_patch = create_discriminator(inputs, outputs)
+                
+        with tf.name_scope("fake_discriminator_global"):
+            with tf.variable_scope("discriminator_global", reuse=True):
+                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
+                predict_fake_global, feature_fake_global = create_discriminator_global(inputs, outputs)            
+        
+        ################### Losses #########################################
+        with tf.name_scope("discriminator_loss"):
+            # minimizing -tf.log will try to get inputs to 1
+            # predict_real => 1
+            # predict_fake => 0
+            discrim_loss = tf.reduce_mean(-( \
+                tf.log(predict_real_patch + EPS) \
+                + tf.log(predict_real_global + EPS) \
+                + tf.log(1 - predict_fake_patch + EPS) \
+                + tf.log(1 - predict_fake_global + EPS) \
+                ))
+        
+        gen_loss = 0
+        with tf.name_scope("generator_loss"):
+            # predict_fake => 1
+            # abs(targets - outputs) => 0
+            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
+            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+            gen_loss += gen_loss_GAN * a.gan_weight
+            gen_loss += gen_loss_L1 * a.l1_weight
+
+        with tf.name_scope("generator_feature_matching_loss"):
+            gen_loss_fm = 0
+            if a.fm:
+                for i in range(a.num_feature_matching):
+                    gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
+                gen_loss += gen_loss_fm * a.fm_weight
+    
+    ############## Summaries ###############################################
+    tf.summary.scalar("discriminator_loss", discrim_loss)
+    tf.summary.scalar("generator_loss_GAN", gen_loss_GAN)
+    tf.summary.scalar("generator_loss_L1", gen_loss_L1)
+    tf.summary.scalar("generator_loss_fm", gen_loss_fm)
+
+    inputs_ = deprocess(inputs)
+    targets_ = deprocess(targets)
+    outputs_ = deprocess(outputs)
+
+    # reverse any processing on images so they can be written to disk or displayed to user
+    with tf.name_scope("convert_inputs"):
+        converted_inputs = convert(inputs_)
+    with tf.name_scope("convert_targets"):
+        converted_targets = convert(targets_)
+    with tf.name_scope("convert_outputs"):
+        converted_outputs = convert(outputs_)
+
+
+    with tf.name_scope("inputs_summary"):
+        tf.summary.image("inputs", converted_inputs)
+    with tf.name_scope("targets_summary"):
+        tf.summary.image("targets", converted_targets)
+    with tf.name_scope("outputs_summary"):
+        tf.summary.image("outputs", converted_outputs)
+    with tf.name_scope("predict_real_summary"):
+        tf.summary.image("predict_real", tf.image.convert_image_dtype(predict_real_patch, dtype=tf.uint8))
+    with tf.name_scope("predict_fake_summary"):
+        tf.summary.image("predict_fake", tf.image.convert_image_dtype(predict_fake_patch, dtype=tf.uint8))
+
+    return discrim_loss, gen_loss
+
+def create_model_multi_gpu(inputs, targets):
+    with tf.name_scope("model"): # tf.Graph().as_default():
+        ########## Learning rate #####################################
+        global_step = tf.contrib.framework.get_or_create_global_step()
+        lr_D = tf.train.exponential_decay(a.lr_discrim,
+                                        global_step,
+                                        a.lr_decay_steps_D,
+                                        a.lr_decay_factor_D,
+                                        staircase=True)
+        lr_G = tf.train.exponential_decay(a.lr_gen,
+                                        global_step,
+                                        a.lr_decay_steps_G,
+                                        a.lr_decay_factor_G,
+                                        staircase=True)
+
+        ########## Calculate the gradients for each model tower ###########
+        discrim_grads_tower = []
+        gen_grads_tower = []
+        with tf.variable_scope(tf.get_variable_scope()):
+            print('number of tower', int(a.num_gpus/4 + 1))
+            for i in range(int(a.num_gpus/4)):
+                with tf.name_scope('tower_%d' % (i)) as scope:
+                    # Calculate the loss for one tower of the CIFAR model. This function
+                    # constructs the entire CIFAR model but shares the variables across
+                    # all towers.
+                    discrim_loss, gen_loss = tower_loss(inputs, targets, i*4, scope)
+
+                    # Reuse variables for the next tower.
+                    tf.get_variable_scope().reuse_variables()
+
+                    with tf.name_scope("discriminator_train"):
+                        discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+                        discrim_optim = tf.train.AdamOptimizer(lr_D, a.beta1)
+                        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
+                        #discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
+         
+                    with tf.name_scope("generator_train"):
+                        gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
+                        gen_optim = tf.train.AdamOptimizer(lr_G, a.beta1)
+                        gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
+                        #gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
+
+                    # Keep track of the gradients across all towers.
+                    discrim_grads_tower.append(discrim_grads_and_vars)
+                    gen_grads_tower.append(gen_grads_and_vars)
+
+        # We must calculate the mean of each gradient. Note that this is the
+        # synchronization point across all towers.
+        discrim_grads = average_gradients(discrim_grads_tower)
+        gen_grads = average_gradients(gen_grads_tower)
+
+        ################## Train ops #########################################
+        discrim_train = discrim_optim.apply_gradients(discrim_grads)
+        with tf.control_dependencies([discrim_train]):
+            gen_train = gen_optim.apply_gradients(gen_grads)
+
+        ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        update_losses = ema.apply([discrim_loss, gen_loss])
+
+    
+        incr_global_step = tf.assign(global_step, global_step+1)
+
+    return tf.group(update_losses, incr_global_step, gen_train), discrim_loss, gen_loss
+
 def create_model(inputs, targets):
     #with tf.device("/gpu:1"):
     with tf.variable_scope("generator") as scope:
@@ -817,7 +1040,7 @@ def create_model(inputs, targets):
         elif a.generator == 'sa_I':
             outputs, beta_list = create_generator_selfatt(inputs, out_channels)
         elif a.generator == 'resgan':
-            outputs = create_generator_resgan(inputs, out_channels)
+            outputs = create_generator_resgan(inputs, out_channels,0)
 
     with tf.device("/gpu:0"):    
         with tf.name_scope("real_vgg") as scope:
@@ -826,6 +1049,7 @@ def create_model(inputs, targets):
         with tf.name_scope("fake_vgg") as scope:
             with tf.variable_scope("vgg", reuse=True):
                 real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
     with tf.device("/gpu:0"):
@@ -1015,6 +1239,7 @@ def main():
         a.scale_size = a.target_size
         a.flip = False
 
+    # print and save configuration
     for k, v in a._get_kwargs():
         print(k, "=", v)
 
@@ -1076,73 +1301,22 @@ def main():
         return
 
     # read TFRecordDataset
-    
     examples, iterator  = read_tfrecord()
     print("examples count = %d" % examples.count)
 
     # inputs and targets are [batch_size, height, width, channels]
-    model = create_model(examples.inputs, examples.targets)
-
-    # undo colorization splitting on images that we use for display/output
-
-    inputs = deprocess(examples.inputs)
-    targets = deprocess(examples.targets)
-    outputs = deprocess(model.outputs)
-
-    def convert(image):
-        if a.aspect_ratio != 1.0:
-            # upscale to correct aspect ratio
-            size = [a.target_size, int(round(a.target_size * a.aspect_ratio))]
-            image = tf.image.resize_images(image, size=size, method=tf.image.ResizeMethod.BICUBIC)
-
-        return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
-
-    # reverse any processing on images so they can be written to disk or displayed to user
-    with tf.name_scope("convert_inputs"):
-        converted_inputs = convert(inputs)
-    with tf.name_scope("convert_targets"):
-        converted_targets = convert(targets)
-    with tf.name_scope("convert_outputs"):
-        converted_outputs = convert(outputs)
-    
-    #print("length of beta list..................", len(model.beta_list))
-    
-    if 0:#a.generator=='sa' or a.generator=='sa_I':
-        # convert beta matrices to image to show as attention maps
-        with tf.name_scope("convert_beta"):
-            converted_betas = tf.image.convert_image_dtype(model.beta_list[-1], dtype=tf.uint8, saturate=True)
+    # model = create_model(examples.inputs, examples.targets)
+    train_op, discrim_loss, gen_loss = create_model_multi_gpu(examples.inputs, examples.targets)
 
     # YuhangLi: only save a part of images for saving driver space.
-    num_display_images = 3000
-    with tf.name_scope("encode_images"):
-        display_fetches = {
-            "filenames": examples.filenames,
-            "inputs": tf.map_fn(tf.image.encode_png, converted_inputs[:num_display_images], dtype=tf.string, name="input_pngs"),
-            "targets": tf.map_fn(tf.image.encode_png, converted_targets[:num_display_images], dtype=tf.string, name="target_pngs"),
-            "outputs": tf.map_fn(tf.image.encode_png, converted_outputs[:num_display_images], dtype=tf.string, name="output_pngs")
-        }
-
-    # summaries
-    with tf.name_scope("inputs_summary"):
-        tf.summary.image("inputs", converted_inputs)
-    with tf.name_scope("targets_summary"):
-        tf.summary.image("targets", converted_targets)
-    with tf.name_scope("outputs_summary"):
-        tf.summary.image("outputs", converted_outputs)
-        
-    if 0: #a.generator=='sa' or a.generator=='sa_I': 
-        with tf.name_scope("betas_summary"):
-            tf.summary.image("betas", tf.image.convert_image_dtype(model.beta_list[-1], dtype=tf.uint8, saturate=True))
-            
-    with tf.name_scope("predict_real_summary"):
-        tf.summary.image("predict_real", tf.image.convert_image_dtype(model.predict_real, dtype=tf.uint8))
-    with tf.name_scope("predict_fake_summary"):
-        tf.summary.image("predict_fake", tf.image.convert_image_dtype(model.predict_fake, dtype=tf.uint8))
-
-    tf.summary.scalar("discriminator_loss", model.discrim_loss)
-    tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
-    tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
-    tf.summary.scalar("generator_loss_fm", model.gen_loss_fm)
+    #num_display_images = 3000
+    #with tf.name_scope("encode_images"):
+    #    display_fetches = {
+    #        "filenames": examples.filenames,
+    #        "inputs": tf.map_fn(tf.image.encode_png, converted_inputs[:num_display_images], dtype=tf.string, name="input_pngs"),
+    #        "targets": tf.map_fn(tf.image.encode_png, converted_targets[:num_display_images], dtype=tf.string, name="target_pngs"),
+    #        "outputs": tf.map_fn(tf.image.encode_png, converted_outputs[:num_display_images], dtype=tf.string, name="output_pngs")
+    #    }
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -1208,20 +1382,22 @@ def main():
 
                 options = None
                 run_metadata = None
+
                 if should(a.trace_freq):
                     options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                     run_metadata = tf.RunMetadata()
 
                 fetches = {
-                    "train": model.train,
+                    "train": train_op,
                     "global_step": sv.global_step,
                 }
 
                 if should(a.progress_freq):
-                    fetches["discrim_loss"] = model.discrim_loss
-                    fetches["gen_loss_GAN"] = model.gen_loss_GAN
-                    fetches["gen_loss_L1"] = model.gen_loss_L1
-                    fetches["gen_loss_fm"] = model.gen_loss_fm
+                    fetches["discrim_loss"] = discrim_loss
+                    fetches["gen_loss"] = gen_loss
+                    #fetches["gen_loss_GAN"] = model.gen_loss_GAN
+                    #fetches["gen_loss_L1"] = model.gen_loss_L1
+                    #fetches["gen_loss_fm"] = model.gen_loss_fm
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -1229,8 +1405,9 @@ def main():
                 if should(a.display_freq):
                     fetches["display"] = display_fetches
 
+                print("running")
                 results = sess.run(fetches, options=options, run_metadata=run_metadata)
-
+                
                 if should(a.summary_freq):
                     print("recording summary")
                     sv.summary_writer.add_summary(results["summary"], results["global_step"])
@@ -1252,9 +1429,10 @@ def main():
                     remaining = (max_steps - step) * a.batch_size / rate
                     print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
                     print("discrim_loss", results["discrim_loss"])
-                    print("gen_loss_GAN", results["gen_loss_GAN"])
-                    print("gen_loss_L1", results["gen_loss_L1"])
-                    print("gen_loss_fm", results["gen_loss_fm"])
+                    print("gen_loss", results["gen_loss"])
+                    #print("gen_loss_GAN", results["gen_loss_GAN"])
+                    #print("gen_loss_L1", results["gen_loss_L1"])
+                    #print("gen_loss_fm", results["gen_loss_fm"])
 
                 if should(a.save_freq):
                     print("saving model")
@@ -1263,9 +1441,8 @@ def main():
                 if should(a.evaluate_freq):
                     print("evaluating results")
                     ## TODO
-                    
-                if sv.should_stop():
-                    break
+                #if sv.should_stop():
+                #    break
     return
 
 
