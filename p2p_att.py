@@ -34,10 +34,10 @@ parser.add_argument("--checkpoint", default=None, help="directory with checkpoin
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
+parser.add_argument("--summary_freq", type=int, default=20, help="update summaries every summary_freq steps")
+parser.add_argument("--progress_freq", type=int, default=20, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=1000, help="write current training images every display_freq steps")
+parser.add_argument("--display_freq", type=int, default=50, help="write current training images every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 parser.add_argument("--evaluate_freq", type=int, default=5000, help="evaluate training data every save_freq steps, 0 to disable")
 
@@ -83,6 +83,7 @@ parser.add_argument("--residual_blocks", type=int, default=8, help="number of re
 parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
 parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
 parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
+parser.add_argument("--num_gpus_per_tower", type=int, default=2, help="number of GPUs per tower used for training")
 parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator")
 parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
 parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
@@ -99,6 +100,7 @@ NUM_SAVE_IMAGE = 100
 
 Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
+Tower = collections.namedtuple("Tower", "inputs, targets, outputs, predict_real, predict_fake, discrim_loss, gen_loss,gen_loss_GAN, gen_loss_L1, gen_loss_fm")
 seed = random.randint(0, 2**31 - 1)
 
 ##################### Data #####################################################
@@ -845,7 +847,7 @@ def convert(image):
 
     return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
 
-def tower_loss(inputs, targets, gpu_idx, scope):
+def create_tower(inputs, targets, gpu_idx, scope):
     with tf.variable_scope("generator") as scope:
         # float32 for TensorFlow
         inputs = tf.cast(inputs, tf.float32)
@@ -920,6 +922,7 @@ def tower_loss(inputs, targets, gpu_idx, scope):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
                 gen_loss += gen_loss_fm * a.fm_weight
     
+
     ############## Summaries ###############################################
     tf.summary.scalar("discriminator_loss", discrim_loss)
     tf.summary.scalar("generator_loss_GAN", gen_loss_GAN)
@@ -950,7 +953,16 @@ def tower_loss(inputs, targets, gpu_idx, scope):
     with tf.name_scope("predict_fake_summary"):
         tf.summary.image("predict_fake", tf.image.convert_image_dtype(predict_fake_patch, dtype=tf.uint8))
 
-    return discrim_loss, gen_loss
+    return Tower(inputs=converted_inputs, 
+                 targets=converted_targets,
+                 outputs=converted_outputs,
+                 predict_real=predict_real_patch,
+                 predict_fake=predict_fake_patch,
+                 discrim_loss=discrim_loss,
+                 gen_loss=gen_loss,
+                 gen_loss_fm=gen_loss_fm,
+                 gen_loss_GAN=gen_loss_GAN,
+                 gen_loss_L1=gen_loss_L1)
 
 def create_model_multi_gpu(inputs, targets):
     with tf.name_scope("model"): # tf.Graph().as_default():
@@ -970,14 +982,17 @@ def create_model_multi_gpu(inputs, targets):
         ########## Calculate the gradients for each model tower ###########
         discrim_grads_tower = []
         gen_grads_tower = []
+        discrim_loss_tower = []
+        gen_loss_tower = []
         with tf.variable_scope(tf.get_variable_scope()):
-            print('number of tower', int(a.num_gpus/4 + 1))
-            for i in range(int(a.num_gpus/4)):
+            num_towers = math.floor(a.num_gpus/a.num_gpus_per_tower)
+            print('number of tower', num_towers)
+            for i in range(num_towers):
                 with tf.name_scope('tower_%d' % (i)) as scope:
                     # Calculate the loss for one tower of the CIFAR model. This function
                     # constructs the entire CIFAR model but shares the variables across
                     # all towers.
-                    discrim_loss, gen_loss = tower_loss(inputs, targets, i*4, scope)
+                    tower = create_tower(inputs, targets, i*4, scope)
 
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
@@ -985,13 +1000,13 @@ def create_model_multi_gpu(inputs, targets):
                     with tf.name_scope("discriminator_train"):
                         discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
                         discrim_optim = tf.train.AdamOptimizer(lr_D, a.beta1)
-                        discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
+                        discrim_grads_and_vars = discrim_optim.compute_gradients(tower.discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
                         #discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
          
                     with tf.name_scope("generator_train"):
                         gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
                         gen_optim = tf.train.AdamOptimizer(lr_G, a.beta1)
-                        gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
+                        gen_grads_and_vars = gen_optim.compute_gradients(tower.gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
                         #gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
                     # Keep track of the gradients across all towers.
@@ -1008,13 +1023,13 @@ def create_model_multi_gpu(inputs, targets):
         with tf.control_dependencies([discrim_train]):
             gen_train = gen_optim.apply_gradients(gen_grads)
 
-        ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        update_losses = ema.apply([discrim_loss, gen_loss])
+        #ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        #update_losses = ema.apply([discrim_loss, gen_loss])
 
-    
         incr_global_step = tf.assign(global_step, global_step+1)
 
-    return tf.group(update_losses, incr_global_step, gen_train), discrim_loss, gen_loss
+    #return tf.group(update_losses, incr_global_step, gen_train), discrim_loss, gen_loss
+    return tf.group(incr_global_step, gen_train), tower
 
 def create_model(inputs, targets):
     #with tf.device("/gpu:1"):
@@ -1306,17 +1321,17 @@ def main():
 
     # inputs and targets are [batch_size, height, width, channels]
     # model = create_model(examples.inputs, examples.targets)
-    train_op, discrim_loss, gen_loss = create_model_multi_gpu(examples.inputs, examples.targets)
+    train_op, tower = create_model_multi_gpu(examples.inputs, examples.targets)
 
     # YuhangLi: only save a part of images for saving driver space.
-    #num_display_images = 3000
-    #with tf.name_scope("encode_images"):
-    #    display_fetches = {
-    #        "filenames": examples.filenames,
-    #        "inputs": tf.map_fn(tf.image.encode_png, converted_inputs[:num_display_images], dtype=tf.string, name="input_pngs"),
-    #        "targets": tf.map_fn(tf.image.encode_png, converted_targets[:num_display_images], dtype=tf.string, name="target_pngs"),
-    #        "outputs": tf.map_fn(tf.image.encode_png, converted_outputs[:num_display_images], dtype=tf.string, name="output_pngs")
-    #    }
+    num_display_images = 3000
+    with tf.name_scope("encode_images"):
+        display_fetches = {
+            "filenames": examples.filenames,
+            "inputs": tf.map_fn(tf.image.encode_png, tower.inputs[:num_display_images], dtype=tf.string, name="input_pngs"),
+            "targets": tf.map_fn(tf.image.encode_png, tower.targets[:num_display_images], dtype=tf.string, name="target_pngs"),
+            "outputs": tf.map_fn(tf.image.encode_png, tower.outputs[:num_display_images], dtype=tf.string, name="output_pngs")
+        }
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -1393,11 +1408,11 @@ def main():
                 }
 
                 if should(a.progress_freq):
-                    fetches["discrim_loss"] = discrim_loss
-                    fetches["gen_loss"] = gen_loss
-                    #fetches["gen_loss_GAN"] = model.gen_loss_GAN
-                    #fetches["gen_loss_L1"] = model.gen_loss_L1
-                    #fetches["gen_loss_fm"] = model.gen_loss_fm
+                    fetches["discrim_loss"] = tower.discrim_loss
+                    fetches["gen_loss"] = tower.gen_loss
+                    fetches["gen_loss_GAN"] = tower.gen_loss_GAN
+                    fetches["gen_loss_L1"] = tower.gen_loss_L1
+                    fetches["gen_loss_fm"] = tower.gen_loss_fm
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -1405,7 +1420,6 @@ def main():
                 if should(a.display_freq):
                     fetches["display"] = display_fetches
 
-                print("running")
                 results = sess.run(fetches, options=options, run_metadata=run_metadata)
                 
                 if should(a.summary_freq):
