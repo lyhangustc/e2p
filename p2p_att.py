@@ -861,7 +861,7 @@ def create_tower(inputs, targets, gpu_idx, scope):
                 real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
         with tf.name_scope("fake_vgg") as scope:
             with tf.variable_scope("vgg", reuse=True):
-                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+                fake_vgg_logits, fake_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
 
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
@@ -922,6 +922,16 @@ def create_tower(inputs, targets, gpu_idx, scope):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
                 gen_loss += gen_loss_fm * a.fm_weight
     
+        #loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
+        #loss_averages_op = loss_averages.apply([gen_loss, gen_loss_GAN, gen_loss_L1, gen_loss_fm, discrim_loss])
+        #loss_averages_op = loss_averages.apply([gen_loss, discrim_loss])
+
+        #with tf.control_dependencies([loss_averages_op]):
+            #discrim_loss = tf.identity(discrim_loss)
+            #gen_loss = tf.identity(gen_loss)
+            #gen_loss_GAN = tf.identity(gen_loss_GAN)
+            #gen_loss_L1 = tf.identity(gen_loss_L1)
+            #gen_loss_fm = tf.identity(gen_loss_fm)
 
     ############## Summaries ###############################################
     tf.summary.scalar("discriminator_loss", discrim_loss)
@@ -992,7 +1002,7 @@ def create_model_multi_gpu(inputs, targets):
                     # Calculate the loss for one tower of the CIFAR model. This function
                     # constructs the entire CIFAR model but shares the variables across
                     # all towers.
-                    tower = create_tower(inputs, targets, i*4, scope)
+                    tower = create_tower(inputs, targets, i*a.num_gpus_per_tower, scope)
 
                     # Reuse variables for the next tower.
                     tf.get_variable_scope().reuse_variables()
@@ -1343,7 +1353,7 @@ def main():
     saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
-    sess_config = tf.ConfigProto(allow_soft_placement=True)
+    sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
     sess_config.gpu_options.allow_growth = True
     with sv.managed_session(config=sess_config) as sess:
         print("parameter_count =", sess.run(parameter_count))
@@ -1444,9 +1454,9 @@ def main():
                     print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
                     print("discrim_loss", results["discrim_loss"])
                     print("gen_loss", results["gen_loss"])
-                    #print("gen_loss_GAN", results["gen_loss_GAN"])
-                    #print("gen_loss_L1", results["gen_loss_L1"])
-                    #print("gen_loss_fm", results["gen_loss_fm"])
+                    print("gen_loss_GAN", results["gen_loss_GAN"])
+                    print("gen_loss_L1", results["gen_loss_L1"])
+                    print("gen_loss_fm", results["gen_loss_fm"])
 
                 if should(a.save_freq):
                     print("saving model")
@@ -1455,8 +1465,8 @@ def main():
                 if should(a.evaluate_freq):
                     print("evaluating results")
                     ## TODO
-                #if sv.should_stop():
-                #    break
+                if sv.should_stop():
+                    break
     return
 
 

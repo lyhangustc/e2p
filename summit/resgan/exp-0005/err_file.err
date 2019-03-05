@@ -76,3 +76,4 @@ totalMemory: 10.92GiB freeMemory: 10.76GiB
 2019-02-17 16:10:35.430264: W tensorflow/core/framework/allocator.cc:101] Allocation of 536870912 exceeds 10% of system memory.
 2019-02-17 16:10:36.662201: W tensorflow/core/framework/allocator.cc:101] Allocation of 536870912 exceeds 10% of system memory.
 2019-02-17 16:10:37.335242: W tensorflow/core/framework/allocator.cc:101] Allocation of 536870912 exceeds 10% of system memory.
+=>> PBS: job killed: walltime 604805 exceeded limit 604800
