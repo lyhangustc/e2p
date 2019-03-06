@@ -848,6 +848,8 @@ def convert(image):
     return tf.image.convert_image_dtype(image, dtype=tf.uint8, saturate=True)
 
 def create_tower(inputs, targets, gpu_idx, scope):
+
+    ############### Create Generator ####################################
     with tf.variable_scope("generator") as scope:
         # float32 for TensorFlow
         inputs = tf.cast(inputs, tf.float32)
@@ -855,6 +857,7 @@ def create_tower(inputs, targets, gpu_idx, scope):
         out_channels = int(targets.get_shape()[-1])
         outputs = create_generator_resgan(generator_inputs=inputs, generator_outputs_channels=out_channels,gpu_idx=gpu_idx+1)
 
+    ############### Create VGG model for perceptual loss ####################################
     with tf.device("/gpu:%d" % (gpu_idx)):    
         with tf.name_scope("real_vgg") as scope:
             with tf.variable_scope("vgg"):
@@ -862,7 +865,9 @@ def create_tower(inputs, targets, gpu_idx, scope):
         with tf.name_scope("fake_vgg") as scope:
             with tf.variable_scope("vgg", reuse=True):
                 fake_vgg_logits, fake_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+    
 
+    ############### Create Discriminator ####################################
     # create two copies of discriminator, one for real pairs and one for fake pairs
     # they share the same underlying variables
     with tf.device("/gpu:%d" % (gpu_idx)):
@@ -893,8 +898,9 @@ def create_tower(inputs, targets, gpu_idx, scope):
             with tf.variable_scope("discriminator_global", reuse=True):
                 # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
                 predict_fake_global, feature_fake_global = create_discriminator_global(inputs, outputs)            
-        
-        ################### Losses #########################################
+    
+    ################### Losses #########################################
+    with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.name_scope("discriminator_loss"):
             # minimizing -tf.log will try to get inputs to 1
             # predict_real => 1

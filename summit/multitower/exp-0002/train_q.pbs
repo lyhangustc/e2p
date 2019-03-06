@@ -1,0 +1,14 @@
+#PBS -N multitower_0002_q
+#PBS -l nodes=1:gpus=4:q
+#PBS -o /gdata/liyh/project/e2p/summit/multitower/exp-0002/out_file_0002_q.out
+#PBS -e /gdata/liyh/project/e2p/summit/multitower/exp-0002/err_file_0002_q.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/p2p/ -s /gdata/liyh/project/e2p/summit/multitower/exp-0002/train_q.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
