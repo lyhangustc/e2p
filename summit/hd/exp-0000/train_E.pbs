@@ -1,0 +1,16 @@
+#PBS -N HD_exp-0000_E
+#PBS -l nodes=1:gpus=8:E
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0000/out_file_0000_E.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0000/err_file_0000_E.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker -D /gpub/temp -P /gdata/liyh -s /gdata/liyh/project/e2p/summit/hd/exp-0000/train_E.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+
+echo '1st HD exp, bs=4*4'

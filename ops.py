@@ -143,6 +143,17 @@ def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
 
     return x
 
+def gram_matrix(feature):
+    '''
+    Comput gram matrix to present style.
+    Code borrowed from https://github.com/dongheehand/style-transfer-tf/blob/master/transfer.py
+    Defined as Equation 3 in paper https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Gatys_Image_Style_Transfer_CVPR_2016_paper.pdf
+    '''
+    size = tf.shape(feature)
+    reshaped_feature_map = tf.reshape(feature, (size[0], size[1] * size[2], size[3]))
+    normalization = 2.0 * tf.cast(size[1] * size[2] * size[3] , tf.float32)
+    return tf.div(tf.matmul(tf.transpose(reshaped_feature_map, perm = [0,2,1]),reshaped_feature_map) ,normalization)
+
 def flatten(x) :
     return tf.layers.flatten(x)
 
@@ -284,7 +295,7 @@ def discriminator_loss(loss_func, real, fake):
 
     return loss
 
-def generator_loss(loss_func, fake):
+def generator_loss(loss_func, fake): 
     fake_loss = 0
 
     if loss_func.__contains__('wgan') :
@@ -301,4 +312,4 @@ def generator_loss(loss_func, fake):
 
     loss = fake_loss
 
-    return loss
+    return loss 

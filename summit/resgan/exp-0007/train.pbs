@@ -1,0 +1,16 @@
+#PBS -N exp-0007_Q
+#PBS -l nodes=1:gpus=4:Q
+#PBS -o /gdata/liyh/project/e2p/summit/resgan/exp-0007/out_file_0007_Q.out
+#PBS -e /gdata/liyh/project/e2p/summit/resgan/exp-0007/err_file_0007_Q.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/p2p/ -s /gdata/liyh/project/e2p/summit/resgan/exp-0007/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+
+echo 'restore conv weight from exp-0005 and train attention layer for 10K steps and the whole model for the later steps."

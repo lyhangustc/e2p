@@ -1,0 +1,16 @@
+#PBS -N exp-0006
+#PBS -l nodes=1:gpus=2:D
+#PBS -o /gdata/liyh/project/e2p/summit/resgan/exp-0005/out_file_0005_restore.out
+#PBS -e /gdata/liyh/project/e2p/summit/resgan/exp-0005/err_file_0005_restore.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/p2p/ -s /gdata/liyh/project/e2p/summit/resgan/exp-0005/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+
+echo "Restore exp-0005, and train for more steps, since the losses of exp-0005 seem not converge yet."
