@@ -67,7 +67,7 @@ parser.add_argument("--style_weight", type=float, default=1.0, help="weight on s
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
 parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
 parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed"])
+parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(double_D=True)
 parser.add_argument("--load_image", dest="load_tfrecord", action="store_false", help="if true, read dataset from TFRecord, otherwise from images")
@@ -107,10 +107,9 @@ Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 Tower = collections.namedtuple("Tower", "inputs, targets, outputs, predict_real, predict_fake, discrim_loss, gen_loss,gen_loss_GAN, gen_loss_L1, gen_loss_fm")
 seed = random.randint(0, 2**31 - 1) 
-
 ##################### Data #####################################################
 
-def transform(image):
+def transform(image, flip=a.flip, monochrome=a.monochrome, random_crop=a.random_crop):
     """ Transform image to augment data.
     Including:
         flip: flip image horizontally
@@ -123,9 +122,9 @@ def transform(image):
     r = image
     height = r.get_shape()[0] # h, w, c
     width = r.get_shape()[1]
-    if a.flip:
+    if flip:
         r = tf.image.random_flip_left_right(r, seed=seed)
-    if a.monochrome:
+    if monochrome:
         r = tf.image.rgb_to_grayscale(r)
     if not height == width:
         # center crop to correct ratio
@@ -133,7 +132,7 @@ def transform(image):
         oh = (height - size) // 2
         ow = (width - size) // 2
         r = tf.image.crop_to_bounding_box(image=r, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
-    if  a.random_crop: 
+    if  random_crop: 
         # resize to a.scale_size and then randomly crop to a.target_size
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
         if not a.target_size == a.scale_size:
@@ -149,6 +148,50 @@ def transform(image):
     return r 
 
 def parse_function_test(example_proto):        
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            # 'mask': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [218, 178, 3])  
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.     
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
+    height = parsed_features['height']
+    width = parsed_features['width']
+    print(height, width)
+  
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
+    photo = transform(photo)     
+    
+    if a.input_type == "df":
+        condition = df
+    elif a.input_type == "edge": 
+        condition = edge
+
+    return photo, condition, filenames 
+
+def parse_function_test_hd(example_proto):        
     features = {
             'filename': tf.FixedLenFeature([], tf.string),
             'height': tf.FixedLenFeature([], tf.int64),
@@ -303,13 +346,84 @@ def parse_function_hd(example_proto):
 
     return photo, condition, filenames
 
+def parse_function_hd_vg(example_proto):
+    '''
+     
+    '''            
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            'hed': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [512, 512, 3])  
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
+    photo = transform(photo) 
+    photo = photo * 2. -1.
+    height = parsed_features['height']
+    width = parsed_features['width']
+    depth = parsed_features['depth']
+    print(height, width, depth)
+ 
+
+    if a.input_type == "df":
+        df = tf.decode_raw(parsed_features['df'], tf.float32) 
+        df = tf.reshape(df, [512, 512, 1])   
+        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
+        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = transform(tf.image.grayscale_to_rgb(df))
+        df = (df) * 2. - 1.    
+        condition = df
+
+    elif a.input_type == "edge": 
+        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = transform(tf.image.grayscale_to_rgb(edge))
+        edge = (edge) * 2. - 1.
+        condition = edge
+
+    elif a.input_type == "hed": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        hed = transform(tf.image.grayscale_to_rgb(hed))
+        hed = (hed) * 2. - 1.
+        condition = hed
+
+    elif a.input_type == "vg": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        vg = tf.math.multiply(hed, edge)
+        vg = transform(tf.image.grayscale_to_rgb(vg))
+        vg = (vg) * 2. - 1.
+        condition = vg
+
+    return photo, condition, filenames
+
 def read_tfrecord():
     tfrecord_fn = glob.glob(os.path.join(a.input_dir, "*.tfrecords"))
     dataset = tf.data.TFRecordDataset(tfrecord_fn)
-    if a.mode=='train':
-        dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
+    if a.hd:
+        if a.mode=='train':
+            dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test_hd)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
     else:
-        dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
+        if a.mode=='train':
+            dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
     dataset = dataset.repeat()  # Repeat the input indefinitely.
     # dataset = dataset.shuffle(buffer_size=10000)
@@ -321,7 +435,7 @@ def read_tfrecord():
     condition.set_shape([a.batch_size, a.target_size, a.target_size, 3])
     
     
-    # print(mat.get_shape())
+    # print(condition.get_shape())
     steps_per_epoch = int(math.ceil(a.num_examples / a.batch_size))
     
     # show read results for code test

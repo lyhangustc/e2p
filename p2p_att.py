@@ -105,7 +105,7 @@ seed = random.randint(0, 2**31 - 1)
 
 ##################### Data #####################################################
 
-def transform(image):
+def transform(image, flip=a.flip, monochrome=a.monochrome, random_crop=a.random_crop):
     """ Transform image to augment data.
     Including:
         flip: flip image horizontally
@@ -118,9 +118,9 @@ def transform(image):
     r = image
     height = r.get_shape()[0] # h, w, c
     width = r.get_shape()[1]
-    if a.flip:
+    if flip:
         r = tf.image.random_flip_left_right(r, seed=seed)
-    if a.monochrome:
+    if monochrome:
         r = tf.image.rgb_to_grayscale(r)
     if not height == width:
         # center crop to correct ratio
@@ -128,7 +128,7 @@ def transform(image):
         oh = (height - size) // 2
         ow = (width - size) // 2
         r = tf.image.crop_to_bounding_box(image=r, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
-    if  a.random_crop: 
+    if  random_crop: 
         # resize to a.scale_size and then randomly crop to a.target_size
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
         if not a.target_size == a.scale_size:
@@ -338,6 +338,72 @@ def parse_function_hd(example_proto):
         hed = tf.reshape(hed, [512, 512, 1])
         hed = (hed) * 2. - 1.
         hed = transform(tf.image.grayscale_to_rgb(hed))
+        condition = hed
+
+    return photo, condition, filenames
+
+def parse_function_hd_vg(example_proto):
+    '''
+     
+    '''            
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            'hed': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [512, 512, 3])  
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
+    photo = transform(photo) 
+    photo = photo * 2. -1.
+    height = parsed_features['height']
+    width = parsed_features['width']
+    depth = parsed_features['depth']
+    print(height, width, depth)
+ 
+
+    if a.input_type == "df":
+        df = tf.decode_raw(parsed_features['df'], tf.float32) 
+        df = tf.reshape(df, [512, 512, 1])   
+        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
+        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = transform(tf.image.grayscale_to_rgb(df))
+        df = (df) * 2. - 1.    
+        condition = df
+
+    elif a.input_type == "edge": 
+        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = transform(tf.image.grayscale_to_rgb(edge))
+        edge = (edge) * 2. - 1.
+        condition = edge
+
+    elif a.input_type == "hed": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        hed = transform(tf.image.grayscale_to_rgb(hed))
+        hed = (hed) * 2. - 1.
+        condition = hed
+
+    elif a.input_type == "vg": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        vg = tf.math.multiply(hed, edge)
+        vg = (vg) * 2. - 1.
+
+        vg = transform(tf.image.grayscale_to_rgb(vg))
         condition = hed
 
     return photo, condition, filenames
