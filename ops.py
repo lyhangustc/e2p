@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow.contrib as tf_contrib
 
+import numpy as np
 import scipy.io as sio
 import scipy.ndimage as sn
 
@@ -161,7 +162,8 @@ def gram_matrix(feature):
 ##################################################################################
 def distance_transform(x):
     def py_distance_transform(x):
-        return sn.distance_transform_edt(x)
+        y = sn.distance_transform_edt(x).astype(np.float32)
+        return y
     return tf.py_func(py_distance_transform, [x], tf.float32)
 
 def flatten(x) :

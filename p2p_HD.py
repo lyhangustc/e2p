@@ -93,7 +93,8 @@ parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learnin
 parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
 parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
 parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
-
+parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd dataset, default use hd.")
+parser.set_defaults(hd=True)
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
@@ -325,14 +326,15 @@ def parse_function_hd(example_proto):
         df = tf.decode_raw(parsed_features['df'], tf.float32) 
         df = tf.reshape(df, [512, 512, 1])   
         #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
-        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = df / a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
         df = (df) * 2. - 1.    
         df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
 
     elif a.input_type == "edge": 
-        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
         edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
         edge = (edge) * 2. - 1.
         edge = transform(tf.image.grayscale_to_rgb(edge))
         condition = edge
@@ -343,72 +345,29 @@ def parse_function_hd(example_proto):
         hed = (hed) * 2. - 1.
         hed = transform(tf.image.grayscale_to_rgb(hed))
         condition = hed
-
-    return photo, condition, filenames
-
-def parse_function_hd_vg(example_proto):
-    '''
-     
-    '''            
-    features = {
-            'filename': tf.FixedLenFeature([], tf.string),
-            'height': tf.FixedLenFeature([], tf.int64),
-            'width': tf.FixedLenFeature([], tf.int64),
-            'depth': tf.FixedLenFeature([], tf.int64),
-            'photo': tf.FixedLenFeature([], tf.string),
-            'hed': tf.FixedLenFeature([], tf.string),
-            'edge': tf.FixedLenFeature([], tf.string),
-            'df': tf.FixedLenFeature([], tf.string)
-            }        
-    
-    parsed_features = tf.parse_single_example(example_proto, features=features) 
-    
-    
-    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
-    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
-    photo = tf.reshape(photo, [512, 512, 3])  
-    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
-    photo = transform(photo) 
-    photo = photo * 2. -1.
-    height = parsed_features['height']
-    width = parsed_features['width']
-    depth = parsed_features['depth']
-    print(height, width, depth)
- 
-
-    if a.input_type == "df":
-        df = tf.decode_raw(parsed_features['df'], tf.float32) 
-        df = tf.reshape(df, [512, 512, 1])   
-        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
-        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
-        df = transform(tf.image.grayscale_to_rgb(df))
-        df = (df) * 2. - 1.    
-        condition = df
-
-    elif a.input_type == "edge": 
-        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
-        edge = tf.reshape(edge, [512, 512, 1])
-        edge = transform(tf.image.grayscale_to_rgb(edge))
-        edge = (edge) * 2. - 1.
-        condition = edge
-
-    elif a.input_type == "hed": 
-        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
-        hed = tf.reshape(hed, [512, 512, 1])
-        hed = transform(tf.image.grayscale_to_rgb(hed))
-        hed = (hed) * 2. - 1.
-        condition = hed
-
+        
     elif a.input_type == "vg": 
         hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
         hed = tf.reshape(hed, [512, 512, 1])
-        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        #hed = (hed) * 2. - 1.
+        #hed = transform(tf.image.grayscale_to_rgb(hed))
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
         edge = tf.reshape(edge, [512, 512, 1])
-        vg = tf.math.multiply(hed, edge)
-        vg = transform(tf.image.grayscale_to_rgb(vg))
-        vg = (vg) * 2. - 1.
-        condition = vg
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = 1. - edge
+        #edge = transform(tf.image.grayscale_to_rgb(edge))
 
+        vg = tf.multiply(hed, edge)
+        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+        vg = ops.distance_transform(vg)
+        vg = tf.reshape(vg, [512, 512, 1])
+        vg = vg / a.df_norm_value
+        #vg = 2. - vg * 2.
+        vg = transform(tf.image.grayscale_to_rgb(vg))
+
+        print(vg.get_shape())
+
+        condition = vg
     return photo, condition, filenames
 
 def read_tfrecord():
@@ -532,31 +491,31 @@ def create_discriminator_resgan(discrim_inputs, discrim_targets):
     net = ops.conv(net, channels=a.ngf, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_0')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf*2]
     net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_1')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_3: [batch, 64, 64, ndf*2] => [batch, 32, 32, ndf*4]
     net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_2')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_4: [batch, 32, 32, ndf*4] => [batch, 31, 31, ndf*8]
     net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_3')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_4: [batch, 31, 31, ndf*4] => [batch, 30, 30, 1]
     net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_4')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     output = tf.sigmoid(net)
 
