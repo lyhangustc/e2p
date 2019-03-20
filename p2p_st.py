@@ -34,25 +34,27 @@ parser.add_argument("--checkpoint", default=None, help="directory with checkpoin
 
 parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
 parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=100, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=50, help="display progress every progress_freq steps")
+parser.add_argument("--summary_freq", type=int, default=20, help="update summaries every summary_freq steps")
+parser.add_argument("--progress_freq", type=int, default=20, help="display progress every progress_freq steps")
 parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=1000, help="write current training images every display_freq steps")
+parser.add_argument("--display_freq", type=int, default=50, help="write current training images every display_freq steps")
 parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
 parser.add_argument("--evaluate_freq", type=int, default=5000, help="evaluate training data every save_freq steps, 0 to disable")
 
+parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd version of CelebA dataset. By default, hd version is used.")
+parser.set_defaults(flip=True)
 parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
 parser.add_argument("--batch_size", type=int, default=8, help="number of images in batch")
 parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
 parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
 parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=286, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--target_size", type=int, default=256, help="scale images to this size before cropping to 256x256")
+parser.add_argument("--scale_size", type=int, default=530, help="scale images to this size before cropping to 256x256")
+parser.add_argument("--target_size", type=int, default=512, help="scale images to this size before cropping to 256x256")
 parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
 parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
 parser.set_defaults(flip=True)
-parser.add_argument("--no_random_crop", dest="random_crop", action="store_false", help="don't crop images randomly")
-parser.set_defaults(random_crop=True)
+parser.add_argument("--random_crop", dest="random_crop", action="store_true", help="crop images randomly")
+parser.set_defaults(random_crop=False)
 parser.add_argument("--monochrome", dest="monochrome", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(monochrome=False)
 parser.add_argument("--lr_gen", type=float, default=0.0002, help="initial learning rate for adam")
@@ -61,12 +63,13 @@ parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of a
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
+parser.add_argument("--style_weight", type=float, default=1.0, help="weight on style loss term for generator gradient")
 
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
 parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
 parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--input_type", default="df", choices=["edge", "df"])
+parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(double_D=True)
 parser.add_argument("--load_image", dest="load_tfrecord", action="store_false", help="if true, read dataset from TFRecord, otherwise from images")
@@ -77,11 +80,21 @@ parser.add_argument("--enc_atten", type=str, default="FTFFF")
 parser.add_argument("--dec_atten", type=str, default="FFFTF")
 parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
 parser.set_defaults(sn=True)
-parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use spectral normalization")
+parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use feature matching loss")
 parser.set_defaults(fm=True)
+parser.add_argument("--no_style_loss", dest="style_loss", action="store_false", help="do not use style loss")
+parser.set_defaults(style_loss=True)
 parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
 parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
+parser.add_argument("--num_style_loss", type=int, default=3, help="number of layers in style loss, count from the last layer of the discriminator")
 parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
+parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
+parser.add_argument("--num_gpus_per_tower", type=int, default=2, help="number of GPUs per tower used for training")
+parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator")
+parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
+parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
+parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
+parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
 
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
@@ -137,6 +150,50 @@ def transform(image):
     return r 
 
 def parse_function_test(example_proto):        
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            # 'mask': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [218, 178, 3])  
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.     
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
+    height = parsed_features['height']
+    width = parsed_features['width']
+    print(height, width)
+  
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
+    photo = transform(photo)     
+    
+    if a.input_type == "df":
+        condition = df
+    elif a.input_type == "edge": 
+        condition = edge
+
+    return photo, condition, filenames 
+
+def parse_function_test_hd(example_proto):        
     features = {
             'filename': tf.FixedLenFeature([], tf.string),
             'height': tf.FixedLenFeature([], tf.int64),
@@ -236,25 +293,86 @@ def parse_function(example_proto):
 
     return photo, condition, filenames
 
+def parse_function_hd(example_proto):
+    '''
+     
+    '''            
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            'hed': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [512, 512, 3])  
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
+    photo = photo * 2. -1.
+    height = parsed_features['height']
+    width = parsed_features['width']
+    depth = parsed_features['depth']
+    print(height, width, depth)
+
+    photo = transform(photo)   
+
+    if a.input_type == "df":
+        df = tf.decode_raw(parsed_features['df'], tf.float32) 
+        df = tf.reshape(df, [512, 512, 1])   
+        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
+        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = (df) * 2. - 1.    
+        df = transform(tf.image.grayscale_to_rgb(df))
+        condition = df
+
+    elif a.input_type == "edge": 
+        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = (edge) * 2. - 1.
+        edge = transform(tf.image.grayscale_to_rgb(edge))
+        condition = edge
+
+    elif a.input_type == "hed": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        hed = (hed) * 2. - 1.
+        hed = transform(tf.image.grayscale_to_rgb(hed))
+        condition = hed
+
+    return photo, condition, filenames
+
 def read_tfrecord():
     tfrecord_fn = glob.glob(os.path.join(a.input_dir, "*.tfrecords"))
     dataset = tf.data.TFRecordDataset(tfrecord_fn)
-    if a.mode=='train':
-        dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+    if a.hd:
+        if a.mode=='train':
+            dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test_hd)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
     else:
-        dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
+        if a.mode=='train':
+            dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
     dataset = dataset.repeat()  # Repeat the input indefinitely.
     # dataset = dataset.shuffle(buffer_size=10000)
     dataset = dataset.batch(a.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    photo, mat, filename = iterator.get_next()
+    photo, condition, filename = iterator.get_next()
 
     photo.set_shape([a.batch_size, a.target_size, a.target_size, 3])
-    mat.set_shape([a.batch_size, a.target_size, a.target_size, 3])
+    condition.set_shape([a.batch_size, a.target_size, a.target_size, 3])
     
     
-    # print(mat.get_shape())
+    # print(condition.get_shape())
     steps_per_epoch = int(math.ceil(a.num_examples / a.batch_size))
     
     # show read results for code test
@@ -266,7 +384,7 @@ def read_tfrecord():
     
     return Examples(
         filenames=filename,
-        inputs=mat,
+        inputs=condition,
         targets=photo,
         count=len(tfrecord_fn),
         steps_per_epoch=steps_per_epoch
@@ -274,48 +392,63 @@ def read_tfrecord():
 
 ##################### Generators #################################################
 
-def create_generator_resgan(generator_inputs, generator_outputs_channels):
+def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_idx=0):
     """
+    gpu_idx: gpu index, use gpu with index of gpu_idx and gpu_idx+1
 
     """
-    with tf.device("/gpu:1"):
+    with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("encoder"): 
             net = ops.conv(generator_inputs, channels=a.ngf, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='encoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
+            print(net.get_shape())
 
             net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_1')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
+            print(net.get_shape())
 
             net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_2')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
+            print(net.get_shape())
+
+            net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
+            print(net.get_shape())
 
         with tf.variable_scope("middle"):
             for i in range(a.residual_blocks):
-                net = ops.resblock_dialated_sn(net, channels=256, rate=2, sn=a.sn, scope='resblock_%d' % i)
+                net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
-    with tf.device("/gpu:2"):
+    with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("decoder"):
-            #net = ops.deconv(net, channels=a.ngf*2, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
-            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+            net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
-            net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                            input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+            print(net.get_shape())
 
-            #net = ops.deconv(net, channels=a.ngf, kernel=4, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
+            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_2')
+            net = tf.contrib.layers.instance_norm(net)
+            net = tf.nn.relu(net)
+            print(net.get_shape())
+
+            # self-attention layer
+            #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+            #                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+
             net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)            
+            net = tf.nn.relu(net)
+            print(net.get_shape())
             #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
             #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
-            #net = ops.deconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
-            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
-            #net = ops.upconv(net, channels=3, kernel=7, stride=1, use_bias=True, sn=a.sn, scope='decoder_2')
+            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_0')            
             net = tf.tanh(net)
+            print(net.get_shape())
 
     return net
 

@@ -1,0 +1,16 @@
+#PBS -N hd_exp-0001_256_MT_E_NoStyle
+#PBS -l nodes=1:gpus=8:E
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_256_MT_E_NoStyle.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_256_MT_E_NoStyle.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0001/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+
+echo "baseline, 256x256 E, MT, NoStyle"

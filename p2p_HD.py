@@ -61,6 +61,7 @@ parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of a
 parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
 parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
 parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
+parser.add_argument("--style_weight", type=float, default=1.0, help="weight on style loss term for generator gradient")
 
 #YuhangLi
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
@@ -77,10 +78,13 @@ parser.add_argument("--enc_atten", type=str, default="FTFFF")
 parser.add_argument("--dec_atten", type=str, default="FFFTF")
 parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
 parser.set_defaults(sn=True)
-parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use spectral normalization")
+parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use feature matching loss")
 parser.set_defaults(fm=True)
+parser.add_argument("--no_style_loss", dest="style_loss", action="store_false", help="do not use style loss")
+parser.set_defaults(style_loss=True)
 parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
 parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
+parser.add_argument("--num_style_loss", type=int, default=3, help="number of layers in style loss, count from the last layer of the discriminator")
 parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
 parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
 parser.add_argument("--num_gpus_per_tower", type=int, default=2, help="number of GPUs per tower used for training")
@@ -102,7 +106,7 @@ NUM_SAVE_IMAGE = 100
 Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count, steps_per_epoch")
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 Tower = collections.namedtuple("Tower", "inputs, targets, outputs, predict_real, predict_fake, discrim_loss, gen_loss,gen_loss_GAN, gen_loss_L1, gen_loss_fm")
-seed = random.randint(0, 2**31 - 1)
+seed = random.randint(0, 2**31 - 1) 
 
 ##################### Data #####################################################
 
@@ -190,6 +194,62 @@ def parse_function_test(example_proto):
 
 def parse_function(example_proto):
     '''
+    Mask is not used, for future applications.    
+    '''            
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            'mask': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [218, 178, 3])  
+    # mask = tf.decode_raw(parsed_features['mask'], tf.uint8)
+    # mask = tf.reshape(mask, [218, 178, 1])
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.    
+    #mask = tf.image.convert_image_dtype(mask, dtype=tf.float64)
+    #mask = mask * 2. -1.  
+    
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
+    height = parsed_features['height']
+    width = parsed_features['width']
+    print(height, width)
+
+    seed = random.randint(0, 2**31 - 1)
+
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
+    photo = transform(photo)   
+    # mask = transform(mask)   
+        
+    if a.input_type == "df":
+        condition = df
+    elif a.input_type == "edge": 
+        condition = edge
+
+    return photo, condition, filenames
+
+def parse_function_hd(example_proto):
+    '''
      
     '''            
     features = {
@@ -247,7 +307,7 @@ def read_tfrecord():
     tfrecord_fn = glob.glob(os.path.join(a.input_dir, "*.tfrecords"))
     dataset = tf.data.TFRecordDataset(tfrecord_fn)
     if a.mode=='train':
-        dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+        dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
     else:
         dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
@@ -255,10 +315,10 @@ def read_tfrecord():
     # dataset = dataset.shuffle(buffer_size=10000)
     dataset = dataset.batch(a.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    photo, mat, filename = iterator.get_next()
+    photo, condition, filename = iterator.get_next()
 
     photo.set_shape([a.batch_size, a.target_size, a.target_size, 3])
-    mat.set_shape([a.batch_size, a.target_size, a.target_size, 3])
+    condition.set_shape([a.batch_size, a.target_size, a.target_size, 3])
     
     
     # print(mat.get_shape())
@@ -273,7 +333,7 @@ def read_tfrecord():
     
     return Examples(
         filenames=filename,
-        inputs=mat,
+        inputs=condition,
         targets=photo,
         count=len(tfrecord_fn),
         steps_per_epoch=steps_per_epoch
@@ -332,6 +392,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
             print(net.get_shape())
+
             #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
             #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
@@ -340,7 +401,6 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             print(net.get_shape())
 
     return net
-
 
 ##################### Discriminators ##############################################
     
@@ -602,11 +662,15 @@ def create_tower(inputs, targets, gpu_idx, scope):
 
         with tf.name_scope("generator_feature_matching_loss"):
             gen_loss_fm = 0
+            gen_loss_style = 0
             if a.fm:
                 for i in range(a.num_feature_matching):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
                 gen_loss += gen_loss_fm * a.fm_weight
-    
+            if a.style_loss:
+                for i in range(a.num_style_loss):
+                    gen_loss_style += tf.reduce_mean(tf.abs(ops.gram_matrix(feature_fake_patch[-i-1]) - ops.gram_matrix(feature_real_patch[-i-1])))
+                gen_loss += gen_loss_style * a.style_weight
         #loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
         #loss_averages_op = loss_averages.apply([gen_loss, gen_loss_GAN, gen_loss_L1, gen_loss_fm, discrim_loss])
         #loss_averages_op = loss_averages.apply([gen_loss, discrim_loss])
@@ -623,6 +687,7 @@ def create_tower(inputs, targets, gpu_idx, scope):
     tf.summary.scalar("generator_loss_GAN", gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", gen_loss_L1)
     tf.summary.scalar("generator_loss_fm", gen_loss_fm)
+    tf.summary.scalar("generator_loss_style", gen_loss_style)
 
     inputs_ = deprocess(inputs)
     targets_ = deprocess(targets)
