@@ -67,7 +67,7 @@ parser.add_argument("--style_weight", type=float, default=1.0, help="weight on s
 parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
 parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
 parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed"])
+parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
 parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
 parser.set_defaults(double_D=True)
 parser.add_argument("--load_image", dest="load_tfrecord", action="store_false", help="if true, read dataset from TFRecord, otherwise from images")
@@ -93,7 +93,8 @@ parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learnin
 parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
 parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
 parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
-
+parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd dataset, default use hd.")
+parser.set_defaults(hd=True)
 # export options
 parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
 a = parser.parse_args()
@@ -107,10 +108,13 @@ Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 Tower = collections.namedtuple("Tower", "inputs, targets, outputs, predict_real, predict_fake, discrim_loss, gen_loss,gen_loss_GAN, gen_loss_L1, gen_loss_fm")
 seed = random.randint(0, 2**31 - 1) 
+<<<<<<< HEAD
 
+=======
+>>>>>>> new_branch_name
 ##################### Data #####################################################
 
-def transform(image):
+def transform(image, flip=a.flip, monochrome=a.monochrome, random_crop=a.random_crop):
     """ Transform image to augment data.
     Including:
         flip: flip image horizontally
@@ -123,9 +127,9 @@ def transform(image):
     r = image
     height = r.get_shape()[0] # h, w, c
     width = r.get_shape()[1]
-    if a.flip:
+    if flip:
         r = tf.image.random_flip_left_right(r, seed=seed)
-    if a.monochrome:
+    if monochrome:
         r = tf.image.rgb_to_grayscale(r)
     if not height == width:
         # center crop to correct ratio
@@ -133,7 +137,7 @@ def transform(image):
         oh = (height - size) // 2
         ow = (width - size) // 2
         r = tf.image.crop_to_bounding_box(image=r, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
-    if  a.random_crop: 
+    if  random_crop: 
         # resize to a.scale_size and then randomly crop to a.target_size
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
         if not a.target_size == a.scale_size:
@@ -192,7 +196,107 @@ def parse_function_test(example_proto):
 
     return photo, condition, filenames 
 
+def parse_function_test_hd(example_proto):        
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            # 'mask': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [218, 178, 3])  
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.     
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
+    height = parsed_features['height']
+    width = parsed_features['width']
+    print(height, width)
+  
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
+    photo = transform(photo)     
+    
+    if a.input_type == "df":
+        condition = df
+    elif a.input_type == "edge": 
+        condition = edge
+
+    return photo, condition, filenames 
+
 def parse_function(example_proto):
+    '''
+    Mask is not used, for future applications.    
+    '''            
+    features = {
+            'filename': tf.FixedLenFeature([], tf.string),
+            'height': tf.FixedLenFeature([], tf.int64),
+            'width': tf.FixedLenFeature([], tf.int64),
+            'depth': tf.FixedLenFeature([], tf.int64),
+            'photo': tf.FixedLenFeature([], tf.string),
+            'mask': tf.FixedLenFeature([], tf.string),
+            'edge': tf.FixedLenFeature([], tf.string),
+            'df': tf.FixedLenFeature([], tf.string)
+            }        
+    
+    parsed_features = tf.parse_single_example(example_proto, features=features) 
+    
+    
+    filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
+    photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
+    photo = tf.reshape(photo, [218, 178, 3])  
+    # mask = tf.decode_raw(parsed_features['mask'], tf.uint8)
+    # mask = tf.reshape(mask, [218, 178, 1])
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.    
+    #mask = tf.image.convert_image_dtype(mask, dtype=tf.float64)
+    #mask = mask * 2. -1.  
+    
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
+    height = parsed_features['height']
+    width = parsed_features['width']
+    print(height, width)
+
+    seed = random.randint(0, 2**31 - 1)
+
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
+    photo = transform(photo)   
+    # mask = transform(mask)   
+        
+    if a.input_type == "df":
+        condition = df
+    elif a.input_type == "edge": 
+        condition = edge
+
+    return photo, condition, filenames
+
+def parse_function_hd(example_proto):
     '''
      
     '''            
@@ -226,14 +330,15 @@ def parse_function(example_proto):
         df = tf.decode_raw(parsed_features['df'], tf.float32) 
         df = tf.reshape(df, [512, 512, 1])   
         #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
-        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = df / a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
         df = (df) * 2. - 1.    
         df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
 
     elif a.input_type == "edge": 
-        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
         edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
         edge = (edge) * 2. - 1.
         edge = transform(tf.image.grayscale_to_rgb(edge))
         condition = edge
@@ -244,28 +349,57 @@ def parse_function(example_proto):
         hed = (hed) * 2. - 1.
         hed = transform(tf.image.grayscale_to_rgb(hed))
         condition = hed
+        
+    elif a.input_type == "vg": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        #hed = (hed) * 2. - 1.
+        #hed = transform(tf.image.grayscale_to_rgb(hed))
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = 1. - edge
+        #edge = transform(tf.image.grayscale_to_rgb(edge))
 
+        vg = tf.multiply(hed, edge)
+        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+        vg = ops.distance_transform(vg)
+        vg = tf.reshape(vg, [512, 512, 1])
+        #vg = vg / a.df_norm_value
+        vg = vg / tf.reduce_max(vg)
+        #vg = 2. - vg * 2.
+        vg = transform(tf.image.grayscale_to_rgb(vg))
+
+        print(vg.get_shape())
+
+        condition = vg
     return photo, condition, filenames
 
 def read_tfrecord():
     tfrecord_fn = glob.glob(os.path.join(a.input_dir, "*.tfrecords"))
     dataset = tf.data.TFRecordDataset(tfrecord_fn)
-    if a.mode=='train':
-        dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+    if a.hd:
+        if a.mode=='train':
+            dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test_hd)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
     else:
-        dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
+        if a.mode=='train':
+            dataset = dataset.map(parse_function)  # Parse the record into tensors. 
+        else:
+            dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
     dataset = dataset.repeat()  # Repeat the input indefinitely.
     # dataset = dataset.shuffle(buffer_size=10000)
     dataset = dataset.batch(a.batch_size)
     iterator = dataset.make_one_shot_iterator()
-    photo, mat, filename = iterator.get_next()
+    photo, condition, filename = iterator.get_next()
 
     photo.set_shape([a.batch_size, a.target_size, a.target_size, 3])
-    mat.set_shape([a.batch_size, a.target_size, a.target_size, 3])
+    condition.set_shape([a.batch_size, a.target_size, a.target_size, 3])
     
     
-    # print(mat.get_shape())
+    # print(condition.get_shape())
     steps_per_epoch = int(math.ceil(a.num_examples / a.batch_size))
     
     # show read results for code test
@@ -277,7 +411,7 @@ def read_tfrecord():
     
     return Examples(
         filenames=filename,
-        inputs=mat,
+        inputs=condition,
         targets=photo,
         count=len(tfrecord_fn),
         steps_per_epoch=steps_per_epoch
@@ -336,6 +470,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
             print(net.get_shape())
+
             #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
             #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
@@ -361,31 +496,31 @@ def create_discriminator_resgan(discrim_inputs, discrim_targets):
     net = ops.conv(net, channels=a.ngf, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_0')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_2: [batch, 128, 128, ndf] => [batch, 64, 64, ndf*2]
     net = ops.conv(net, channels=a.ngf*2, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_1')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_3: [batch, 64, 64, ndf*2] => [batch, 32, 32, ndf*4]
     net = ops.conv(net, channels=a.ngf*4, kernel=4, stride=2, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_2')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_4: [batch, 32, 32, ndf*4] => [batch, 31, 31, ndf*8]
     net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_3')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     # layer_4: [batch, 31, 31, ndf*4] => [batch, 30, 30, 1]
     net = ops.conv(net, channels=1, kernel=4, stride=1, pad=1, use_bias=not a.sn, sn=a.sn, scope='discriminator_4')
     net = lrelu(net, 0.2)
     layers.append(net)
-    #print(net.get_shape())
+    print(net.get_shape())
 
     output = tf.sigmoid(net)
 

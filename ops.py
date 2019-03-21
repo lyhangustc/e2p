@@ -1,6 +1,9 @@
 import tensorflow as tf
 import tensorflow.contrib as tf_contrib
 
+import numpy as np
+import scipy.io as sio
+import scipy.ndimage as sn
 
 # Xavier : tf_contrib.layers.xavier_initializer()
 # He : tf_contrib.layers.variance_scaling_initializer()
@@ -154,6 +157,18 @@ def gram_matrix(feature):
     normalization = 2.0 * tf.cast(size[1] * size[2] * size[3] , tf.float32)
     return tf.div(tf.matmul(tf.transpose(reshaped_feature_map, perm = [0,2,1]),reshaped_feature_map) ,normalization)
 
+<<<<<<< HEAD
+=======
+##################################################################################
+# Auxilary Function
+##################################################################################
+def distance_transform(x):
+    def py_distance_transform(x):
+        y = sn.distance_transform_edt(x).astype(np.float32)
+        return y
+    return tf.py_func(py_distance_transform, [x], tf.float32)
+
+>>>>>>> new_branch_name
 def flatten(x) :
     return tf.layers.flatten(x)
 
