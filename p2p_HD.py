@@ -361,7 +361,8 @@ def parse_function_hd(example_proto):
         vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
         vg = ops.distance_transform(vg)
         vg = tf.reshape(vg, [512, 512, 1])
-        vg = vg / a.df_norm_value
+        #vg = vg / a.df_norm_value
+        vg = vg / tf.reduce_max(vg)
         #vg = 2. - vg * 2.
         vg = transform(tf.image.grayscale_to_rgb(vg))
 
