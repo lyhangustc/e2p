@@ -1,0 +1,16 @@
+#PBS -N hd_exp-0002_weight_10_1_1_1
+#PBS -l nodes=1:gpus=2:D
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0002/hd_exp-0002_weight_10_1_1_1.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0002/hd_exp-0002_weight_10_1_1_1.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0002/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+
+echo "baseline, lsgan, fm, style, weight: l1_gan_fm_style, 0002_weight_10_1_1_1"

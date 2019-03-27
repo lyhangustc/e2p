@@ -18,6 +18,7 @@ import scipy.io as sio
 import warnings
 from functools import partial
 from nets import resnet_utils
+from options.train_options import TrainOptions
 from models import *
 from vgg import * 
 import ops
@@ -25,79 +26,7 @@ import ops
 slim = tf.contrib.slim
 resnet_arg_scope = resnet_utils.resnet_arg_scope
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", help="path to folder containing images")
-parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
-parser.add_argument("--output_dir", required=True, help="where to put output files")
-parser.add_argument("--seed", type=int)
-parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
-
-parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=20, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=20, help="display progress every progress_freq steps")
-parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=50, help="write current training images every display_freq steps")
-parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
-parser.add_argument("--evaluate_freq", type=int, default=5000, help="evaluate training data every save_freq steps, 0 to disable")
-
-parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
-parser.add_argument("--batch_size", type=int, default=8, help="number of images in batch")
-parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
-parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
-parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=530, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--target_size", type=int, default=512, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
-parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
-parser.set_defaults(flip=True)
-parser.add_argument("--random_crop", dest="random_crop", action="store_true", help="crop images randomly")
-parser.set_defaults(random_crop=False)
-parser.add_argument("--monochrome", dest="monochrome", action="store_true", help="convert image from rgb to gray")
-parser.set_defaults(monochrome=False)
-parser.add_argument("--lr_gen", type=float, default=0.0002, help="initial learning rate for adam")
-parser.add_argument("--lr_discrim", type=float, default=0.00002, help="initial learning rate for adam")
-parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
-parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
-parser.add_argument("--style_weight", type=float, default=1.0, help="weight on style loss term for generator gradient")
-
-#YuhangLi
-parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
-parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
-parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
-parser.set_defaults(double_D=True)
-parser.add_argument("--load_image", dest="load_tfrecord", action="store_false", help="if true, read dataset from TFRecord, otherwise from images")
-parser.set_defaults(load_tfrecord=True)
-parser.add_argument("--num_examples", required=True, type=int, help="number of training/testing examples in TFRecords. required, since TFRecords do not have metadata")
-parser.add_argument("--channel_fac", default=16, type=int, help="faction of channel in self attention modual. Set to large to save GPU memory")
-parser.add_argument("--enc_atten", type=str, default="FTFFF")
-parser.add_argument("--dec_atten", type=str, default="FFFTF")
-parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
-parser.set_defaults(sn=True)
-parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use feature matching loss")
-parser.set_defaults(fm=True)
-parser.add_argument("--no_style_loss", dest="style_loss", action="store_false", help="do not use style loss")
-parser.set_defaults(style_loss=True)
-parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
-parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
-parser.add_argument("--num_style_loss", type=int, default=3, help="number of layers in style loss, count from the last layer of the discriminator")
-parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
-parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
-parser.add_argument("--num_gpus_per_tower", type=int, default=2, help="number of GPUs per tower used for training")
-parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator")
-parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
-parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
-parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
-parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
-parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd dataset, default use hd.")
-parser.set_defaults(hd=True)
-# export options
-parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
-a = parser.parse_args()
+a = TrainOptions().parse()
 
 EPS = 1e-12
 
@@ -444,7 +373,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             print(net.get_shape())
 
         with tf.variable_scope("middle"):
-            for i in range(a.residual_blocks):
+            for i in range(a.num_residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
     with tf.device("/gpu:%d" % (gpu_idx)):
@@ -574,11 +503,11 @@ def create_discriminator_conv_global(discrim_inputs, discrim_targets):
     # layer_3: [batch, 64, 64, ndf * 2] => [batch, 32, 32, ndf * 4]
     # layer_4: [batch, 32, 32, ndf * 4] => [batch, 16, 16, ndf * 8]
     # layer_5: [batch, 16, 16, ndf * 8] => [batch, 8,  8,  ndf * 16]
-    # layer_6: [batch, 8, 8, ndf * 16] => [batch, 4,  4,  ndf * 32]
-    # layer_7: [batch, 4, 4, ndf * 32] => [batch, 2,  2,  ndf * 64]
+    # layer_6: [batch, 8, 8, ndf * 16] => [batch, 4,  4,  ndf * 16]
+    # layer_7: [batch, 4, 4, ndf * 16] => [batch, 2,  2,  ndf * 16]
     for i in range(n_layers):
         with tf.variable_scope("layer_%d_global" % (len(layers) + 1)):
-            out_channels = a.ndf * 2**(i+1)
+            out_channels = a.ndf * min(2**(i+1), 16)
             stride =  2  # last layer here has stride 1
             convolved = conv(layers[-1], out_channels, stride=stride)
             normalized = batchnorm(convolved)
@@ -586,7 +515,7 @@ def create_discriminator_conv_global(discrim_inputs, discrim_targets):
             layers.append(rectified)
             print("g conv shape: ", convolved.get_shape())
 
-    # layer_8: [batch, 2, 2, ndf * 64] => [batch, 1, 1, 1]
+    # layer_8: [batch, 2, 2, ndf * 16] => [batch, 1, 1, 1]
     with tf.variable_scope("layer_%d_global" % (len(layers) + 1)):
         convolved = conv(rectified, out_channels=1, stride=1)
         layers.append(convolved)
@@ -715,7 +644,7 @@ def create_tower(inputs, targets, gpu_idx, scope):
             # minimizing -tf.log will try to get inputs to 1
             # predict_real => 1
             # predict_fake => 0
-            if a.lsgan:
+            if a.stabilization == 'lsgan':
                 discrim_loss = tf.losses.mean_squared_error(predict_real_patch, tf.ones(predict_real_patch.shape))
                 discrim_loss += tf.losses.mean_squared_error(predict_real_global, tf.ones(predict_real_global.shape))
                 discrim_loss += tf.losses.mean_squared_error(predict_fake_patch, tf.zeros(predict_fake_patch.shape))
@@ -730,12 +659,13 @@ def create_tower(inputs, targets, gpu_idx, scope):
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
-            if a.lsgan:
+            if a.stabilization == 'lsgan':
                 gen_loss_GAN = tf.losses.mean_squared_error(predict_fake_patch, tf.ones(predict_real_patch.shape))
             else:
                 gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
 
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+            
             gen_loss += gen_loss_GAN * a.gan_weight
             gen_loss += gen_loss_L1 * a.l1_weight
 
@@ -765,8 +695,10 @@ def create_tower(inputs, targets, gpu_idx, scope):
     tf.summary.scalar("discriminator_loss", discrim_loss)
     tf.summary.scalar("generator_loss_GAN", gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", gen_loss_L1)
-    tf.summary.scalar("generator_loss_fm", gen_loss_fm)
-    tf.summary.scalar("generator_loss_style", gen_loss_style)
+    if a.fm:
+        tf.summary.scalar("generator_loss_fm", gen_loss_fm)
+    if a.style_loss:
+        tf.summary.scalar("generator_loss_style", gen_loss_style)
 
     inputs_ = deprocess(inputs)
     targets_ = deprocess(targets)
@@ -1016,104 +948,98 @@ def train():
         if a.max_steps is not None:
             max_steps = a.max_steps
 
-        if a.mode == "test":
-            # testing
-            # at most, process the test data once
-            max_steps = min(examples.steps_per_epoch, max_steps)
-            for step in range(max_steps):
-                results = sess.run(display_fetches)
-                filesets = save_images(results, step=step)
-                for i, f in enumerate(filesets):
-                    print("evaluated image", f["name"])
-                # temporaly commented, error for unknown reason    
-                # index_path = append_index(filesets)
-
-            print("wrote index at", index_path)
-        else:
-            """ Training
-            Basic idea of training here is:
-                if should run something:
-                    add it to the fetches
-                    .
-                    .
-                    .
-                sess.run(fetches)
+        """ Training
+        Basic idea of training here is:
+            if should run something:
+                add it to the fetches
+                .
+                .
+                .
+            sess.run(fetches)
                 
-                if should run something:
-                    save the result of it
-                    .
-                    .
-                    .
-            "Something" includes: metadata, losses, summary, display(save) images
-            """
-            start = time.time()
+            if should run something:
+                save the result of it
+                .
+                .
+                .
+        "Something" includes: metadata, losses, summary, display(save) images
+        """
+        start = time.time()
 
-            for step in range(max_steps):
-                def should(freq):
-                    return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
+        if a.debug:
+            a.progress_freq = 1
+            a.summary_freq = 1
+            a.display_freq = 1
+        for step in range(max_steps):
+            def should(freq):
+                return freq > 0 and ((step + 1) % freq == 0 or step == max_steps - 1)
 
-                options = None
-                run_metadata = None
+            options = None
+            run_metadata = None
 
-                if should(a.trace_freq):
-                    options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
-                    run_metadata = tf.RunMetadata()
+            if should(a.trace_freq):
+                options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+                run_metadata = tf.RunMetadata()
 
-                fetches = {
-                    "train": train_op,
-                    "global_step": sv.global_step,
-                }
+            fetches = {
+                "train": train_op,
+                "global_step": sv.global_step,
+            }
 
-                if should(a.progress_freq):
-                    fetches["discrim_loss"] = tower.discrim_loss
-                    fetches["gen_loss"] = tower.gen_loss
-                    fetches["gen_loss_GAN"] = tower.gen_loss_GAN
-                    fetches["gen_loss_L1"] = tower.gen_loss_L1
+            if should(a.progress_freq):
+                fetches["discrim_loss"] = tower.discrim_loss
+                fetches["gen_loss"] = tower.gen_loss
+                fetches["gen_loss_GAN"] = tower.gen_loss_GAN
+                fetches["gen_loss_L1"] = tower.gen_loss_L1
+                if a.fm:
                     fetches["gen_loss_fm"] = tower.gen_loss_fm
 
-                if should(a.summary_freq):
-                    fetches["summary"] = sv.summary_op
+            if should(a.summary_freq):
+                fetches["summary"] = sv.summary_op
 
-                if should(a.display_freq):
-                    fetches["display"] = display_fetches
+            if should(a.display_freq):
+                fetches["display"] = display_fetches
 
-                results = sess.run(fetches, options=options, run_metadata=run_metadata)
+            if a.debug:
+                print(step)
+            results = sess.run(fetches, options=options, run_metadata=run_metadata)
                 
-                if should(a.summary_freq):
-                    print("recording summary")
-                    sv.summary_writer.add_summary(results["summary"], results["global_step"])
+            if should(a.summary_freq):
+                print("recording summary")
+                sv.summary_writer.add_summary(results["summary"], results["global_step"])
 
-                if should(a.display_freq):
-                    print("saving display images")
-                    filesets = save_images(results["display"], step=results["global_step"])
-                    append_index(filesets, step=True)
+            if should(a.display_freq):
+                print("saving display images")
+                filesets = save_images(results["display"], step=results["global_step"])
+                append_index(filesets, step=True)
 
-                if should(a.trace_freq):
-                    print("recording trace")
-                    sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
+            if should(a.trace_freq):
+                print("recording trace")
+                sv.summary_writer.add_run_metadata(run_metadata, "step_%d" % results["global_step"])
 
-                if should(a.progress_freq):
-                    # global_step will have the correct step count if we resume from a checkpoint
-                    train_epoch = math.ceil(results["global_step"] / examples.steps_per_epoch)
-                    train_step = (results["global_step"] - 1) % examples.steps_per_epoch + 1
-                    rate = (step + 1) * a.batch_size / (time.time() - start)
-                    remaining = (max_steps - step) * a.batch_size / rate
-                    print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
-                    print("discrim_loss", results["discrim_loss"])
-                    print("gen_loss", results["gen_loss"])
-                    print("gen_loss_GAN", results["gen_loss_GAN"])
-                    print("gen_loss_L1", results["gen_loss_L1"])
+            if should(a.progress_freq):
+                # global_step will have the correct step count if we resume from a checkpoint
+                train_epoch = math.ceil(results["global_step"] / examples.steps_per_epoch)
+                train_step = (results["global_step"] - 1) % examples.steps_per_epoch + 1
+                rate = (step + 1) * a.batch_size / (time.time() - start)
+                remaining = (max_steps - step) * a.batch_size / rate
+                print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
+                print("discrim_loss", results["discrim_loss"])
+                print("gen_loss", results["gen_loss"])
+                print("gen_loss_GAN", results["gen_loss_GAN"])
+                print("gen_loss_L1", results["gen_loss_L1"])
+                if a.fm:
                     print("gen_loss_fm", results["gen_loss_fm"])
 
-                if should(a.save_freq):
-                    print("saving model")
-                    saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
+            if should(a.save_freq):
+                print("saving model")
+                saver.save(sess, os.path.join(a.output_dir, "model"), global_step=sv.global_step)
 
-                if should(a.evaluate_freq):
-                    print("evaluating results")
-                    ## TODO
-                if sv.should_stop():
-                    break
+            if should(a.evaluate_freq):
+                print("evaluating results")
+                ## TODO
+            if sv.should_stop():
+                break
     return
 
 def test():
@@ -1211,5 +1137,5 @@ def test():
     return
 
 
-#train()
-test()
+train()
+#test()
