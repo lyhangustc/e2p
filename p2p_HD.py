@@ -108,10 +108,7 @@ Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 Tower = collections.namedtuple("Tower", "inputs, targets, outputs, predict_real, predict_fake, discrim_loss, gen_loss,gen_loss_GAN, gen_loss_L1, gen_loss_fm")
 seed = random.randint(0, 2**31 - 1) 
-<<<<<<< HEAD
 
-=======
->>>>>>> new_branch_name
 ##################### Data #####################################################
 
 def transform(image, flip=a.flip, monochrome=a.monochrome, random_crop=a.random_crop):
@@ -718,22 +715,26 @@ def create_tower(inputs, targets, gpu_idx, scope):
             # minimizing -tf.log will try to get inputs to 1
             # predict_real => 1
             # predict_fake => 0
-            #discrim_loss = tf.reduce_mean(-( \
-            #    tf.log(predict_real_patch + EPS) \
-            #    + tf.log(predict_real_global + EPS) \
-            #    + tf.log(1 - predict_fake_patch + EPS) \
-            #    + tf.log(1 - predict_fake_global + EPS) \
-            #   ))
-            discrim_loss = -tf.reduce_mean(tf.log(predict_real_patch + EPS))
-            discrim_loss += -tf.reduce_mean(tf.log(predict_real_global + EPS))
-            discrim_loss += -tf.reduce_mean(tf.log(1 - predict_fake_patch + EPS))
-            discrim_loss += -tf.reduce_mean(tf.log(1 - predict_fake_global + EPS))
+            if a.lsgan:
+                discrim_loss = tf.losses.mean_squared_error(predict_real_patch, tf.ones(predict_real_patch.shape))
+                discrim_loss += tf.losses.mean_squared_error(predict_real_global, tf.ones(predict_real_global.shape))
+                discrim_loss += tf.losses.mean_squared_error(predict_fake_patch, tf.zeros(predict_fake_patch.shape))
+                discrim_loss += tf.losses.mean_squared_error(predict_fake_global, tf.zeros(predict_fake_global.shape))
+            else:
+                discrim_loss = -tf.reduce_mean(tf.log(predict_real_patch + EPS))
+                discrim_loss += -tf.reduce_mean(tf.log(predict_real_global + EPS))
+                discrim_loss += -tf.reduce_mean(tf.log(1 - predict_fake_patch + EPS))
+                discrim_loss += -tf.reduce_mean(tf.log(1 - predict_fake_global + EPS))
         
         gen_loss = 0
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
-            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
+            if a.lsgan:
+                gen_loss_GAN = tf.losses.mean_squared_error(predict_fake_patch, tf.ones(predict_real_patch.shape))
+            else:
+                gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
+
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
             gen_loss += gen_loss_GAN * a.gan_weight
             gen_loss += gen_loss_L1 * a.l1_weight
@@ -937,7 +938,7 @@ def append_index(filesets, step=False):
         index.write("</tr>")
     return index_path
 
-def main():
+def train():
     if a.seed is None:
         a.seed = random.randint(0, 2**31 - 1)
 
@@ -1115,5 +1116,100 @@ def main():
                     break
     return
 
+def test():
+    if a.seed is None:
+        a.seed = random.randint(0, 2**31 - 1)
 
-main()
+    tf.set_random_seed(a.seed)
+    np.random.seed(a.seed)
+    random.seed(a.seed)
+    
+    if not os.path.exists(a.output_dir):    
+        os.makedirs(a.output_dir)
+
+    if a.mode == "test" or a.mode == "export":
+        if a.checkpoint is None:
+            raise Exception("checkpoint required for test mode")
+
+        # load some options from the checkpoint
+        options = {"which_direction", "ngf", "ndf"}
+        with open(os.path.join(a.checkpoint, "options.json")) as f:
+            for key, val in json.loads(f.read()).items():
+                if key in options:
+                    print("loaded", key, "=", val)
+                    setattr(a, key, val)
+
+        # disable these features in test mode
+        a.scale_size = a.target_size
+        a.flip = False
+
+    # print and save configuration
+    for k, v in a._get_kwargs():
+        print(k, "=", v)
+
+    with open(os.path.join(a.output_dir, "options.json"), "w") as f:
+        f.write(json.dumps(vars(a), sort_keys=True, indent=4))
+
+    # read TFRecordDataset
+    examples, iterator  = read_tfrecord()
+    print("examples count = %d" % examples.count)
+
+    # inputs and targets are [batch_size, height, width, channels]
+    # model = create_model(examples.inputs, examples.targets)
+    train_op, tower = create_model_multi_gpu(examples.inputs, examples.targets)
+
+    # YuhangLi: only save a part of images for saving driver space.
+    num_display_images = 3000
+    with tf.name_scope("encode_images"):
+        display_fetches = {
+            "filenames": examples.filenames,
+            "inputs": tf.map_fn(tf.image.encode_png, tower.inputs[:num_display_images], dtype=tf.string, name="input_pngs"),
+            "targets": tf.map_fn(tf.image.encode_png, tower.targets[:num_display_images], dtype=tf.string, name="target_pngs"),
+            "outputs": tf.map_fn(tf.image.encode_png, tower.outputs[:num_display_images], dtype=tf.string, name="output_pngs")
+        }
+
+    for var in tf.trainable_variables():
+        tf.summary.histogram(var.op.name + "/values", var)
+    #    tf.summary.histogram(var.op.name + "/gradients", grad)
+
+    with tf.name_scope("parameter_count"):
+        parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
+
+    restore_collection =  tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
+    saver = tf.train.Saver(var_list=restore_collection, max_to_keep=1)
+    logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
+    sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
+    sess_config = tf.ConfigProto(allow_soft_placement=True, log_device_placement=False) # print device placement
+    sess_config.gpu_options.allow_growth = True
+    with sv.managed_session(config=sess_config) as sess:
+        print("parameter_count =", sess.run(parameter_count))
+
+        if a.checkpoint is not None:
+            print("loading model from checkpoint")
+            checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+            saver.restore(sess, checkpoint)
+
+        max_steps = 2**32
+        if a.max_epochs is not None:
+            max_steps = examples.steps_per_epoch * a.max_epochs
+        if a.max_steps is not None:
+            max_steps = a.max_steps
+
+        if a.mode == "test":
+            # testing
+            # at most, process the test data once
+            max_steps = min(examples.steps_per_epoch, max_steps)
+            for step in range(max_steps):
+                results = sess.run(display_fetches)
+                filesets = save_images(results, step=step)
+                for i, f in enumerate(filesets):
+                    print("evaluated image", f["name"])
+                # temporaly commented, error for unknown reason    
+                # index_path = append_index(filesets)
+
+            print("wrote index at", index_path)
+    return
+
+
+#train()
+test()

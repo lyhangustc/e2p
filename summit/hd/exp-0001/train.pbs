@@ -1,7 +1,7 @@
-#PBS -N hd_exp-0001_Q_df_max
+#PBS -N hd_exp-0001_Baseline_Q_df_max
 #PBS -l nodes=1:gpus=4:Q
-#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_Q_df_max.out
-#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_Q_df_max.err
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_Baseline_Q_df_max.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0001/hd_exp-0001_Baseline_Q_df_max.err
 #PBS -r y
 
 cd $PBS_O_WORKDIR
@@ -13,4 +13,4 @@ cat $PBS_GPUFILE
 
 startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0001/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
 
-echo "baseline, 0001_Q_df, test distance transform, /max(vg)"
+echo "baseline, 0001_Q_df, no style, no fm"

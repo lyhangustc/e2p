@@ -295,7 +295,7 @@ def parse_function(example_proto):
 
 def parse_function_hd(example_proto):
     '''
-     
+    Mask is not used, for future applications.    
     '''            
     features = {
             'filename': tf.FixedLenFeature([], tf.string),
@@ -303,7 +303,7 @@ def parse_function_hd(example_proto):
             'width': tf.FixedLenFeature([], tf.int64),
             'depth': tf.FixedLenFeature([], tf.int64),
             'photo': tf.FixedLenFeature([], tf.string),
-            'hed': tf.FixedLenFeature([], tf.string),
+            'mask': tf.FixedLenFeature([], tf.string),
             'edge': tf.FixedLenFeature([], tf.string),
             'df': tf.FixedLenFeature([], tf.string)
             }        
@@ -313,38 +313,39 @@ def parse_function_hd(example_proto):
     
     filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
     photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
-    photo = tf.reshape(photo, [512, 512, 3])  
-    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
-    photo = photo * 2. -1.
+    photo = tf.reshape(photo, [218, 178, 3])  
+    # mask = tf.decode_raw(parsed_features['mask'], tf.uint8)
+    # mask = tf.reshape(mask, [218, 178, 1])
+    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
+    edge = tf.reshape(edge, [218, 178, 1])
+    df = tf.decode_raw(parsed_features['df'], tf.float64) 
+    df = tf.reshape(df, [218, 178, 1])   
+    
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
+    photo = photo * 2. -1.    
+    #mask = tf.image.convert_image_dtype(mask, dtype=tf.float64)
+    #mask = mask * 2. -1.  
+    
+    
+    edge = (edge) * 2. - 1.
+    df = df/tf.reduce_max(df)
+    df = (df) * 2. - 1.
+    
     height = parsed_features['height']
     width = parsed_features['width']
-    depth = parsed_features['depth']
-    print(height, width, depth)
+    print(height, width)
 
+    seed = random.randint(0, 2**31 - 1)
+
+    edge = transform(tf.image.grayscale_to_rgb(edge))
+    df = transform(tf.image.grayscale_to_rgb(df))
     photo = transform(photo)   
-
+    # mask = transform(mask)   
+        
     if a.input_type == "df":
-        df = tf.decode_raw(parsed_features['df'], tf.float32) 
-        df = tf.reshape(df, [512, 512, 1])   
-        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
-        df = df/a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
-        df = (df) * 2. - 1.    
-        df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
-
     elif a.input_type == "edge": 
-        edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
-        edge = tf.reshape(edge, [512, 512, 1])
-        edge = (edge) * 2. - 1.
-        edge = transform(tf.image.grayscale_to_rgb(edge))
         condition = edge
-
-    elif a.input_type == "hed": 
-        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
-        hed = tf.reshape(hed, [512, 512, 1])
-        hed = (hed) * 2. - 1.
-        hed = transform(tf.image.grayscale_to_rgb(hed))
-        condition = hed
 
     return photo, condition, filenames
 
@@ -363,7 +364,7 @@ def read_tfrecord():
             dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
     dataset = dataset.repeat()  # Repeat the input indefinitely.
-    # dataset = dataset.shuffle(buffer_size=10000)
+    dataset = dataset.shuffle(buffer_size=10000)
     dataset = dataset.batch(a.batch_size)
     iterator = dataset.make_one_shot_iterator()
     photo, condition, filename = iterator.get_next()
