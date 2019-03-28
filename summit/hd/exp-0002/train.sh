@@ -14,4 +14,4 @@ python p2p_HD.py \
 --scale_size 256 \
 --target_size 256 \
 --num_gpus 2 \
---stabilization lsgan 
+--stabilization lsgan  

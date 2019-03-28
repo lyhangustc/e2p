@@ -13,4 +13,4 @@ cat $PBS_GPUFILE
 
 startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0002/train.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
 
-echo "baseline, lsgan, fm, style, "
+echo "baseline, lsgan, fm, style, " 
