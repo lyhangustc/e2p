@@ -666,8 +666,15 @@ def create_tower(inputs, targets, gpu_idx, scope):
 
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
             
+            global_step = tf.contrib.framework.get_or_create_global_step()
+            l1_weight = tf.train.exponential_decay(a.l1_weight,
+                                        global_step,
+                                        a.l1_weight_decay_steps,
+                                        a.l1_weight_decay_factor,
+                                        staircase=True)
+
             gen_loss += gen_loss_GAN * a.gan_weight
-            gen_loss += gen_loss_L1 * a.l1_weight
+            gen_loss += gen_loss_L1 * l1_weight
 
         with tf.name_scope("generator_feature_matching_loss"):
             gen_loss_fm = 0

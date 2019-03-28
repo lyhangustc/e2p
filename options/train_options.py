@@ -23,6 +23,9 @@ class TrainOptions(BaseOptions):
         self.parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
         self.parser.add_argument("--style_weight", type=float, default=1.0, help="weight on style loss term for generator gradient")
 
+        self.parser.add_argument("--l1_weight_decay_steps", type=int, default=10000, help="learning rate decay steps for l1 loss weight") # count by step, should count by epoch
+        self.parser.add_argument("--l1_weight_decay_factor", type=float, default=0.9, help="learning rate decay factor for l1 loss weight")
+
         self.parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator") # count by step, should count by epoch
         self.parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
         self.parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
