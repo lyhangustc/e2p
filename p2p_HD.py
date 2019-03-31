@@ -367,10 +367,10 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             net = tf.nn.relu(net)
             print(net.get_shape())
 
-            net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
         with tf.variable_scope("middle"):
             for i in range(a.num_residual_blocks):
@@ -378,10 +378,10 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
     
     with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("decoder"):
-            net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
             net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_2')
             net = tf.contrib.layers.instance_norm(net)
