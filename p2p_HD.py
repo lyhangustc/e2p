@@ -367,21 +367,21 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             net = tf.nn.relu(net)
             print(net.get_shape())
 
-            net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
         with tf.variable_scope("middle"):
             for i in range(a.num_residual_blocks):
-                net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
+                net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
     with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("decoder"):
-            net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
             net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_2')
             net = tf.contrib.layers.instance_norm(net)
@@ -585,7 +585,7 @@ def create_tower(inputs, targets, gpu_idx, scope):
 
     ############### Create Generator ####################################
     with tf.variable_scope("generator") as scope:
-        # float32 for TensorFlow
+        # float32 for TensorFlowf
         inputs = tf.cast(inputs, tf.float32)
         targets = tf.cast(targets, tf.float32)
         print("input shape", inputs.get_shape())
@@ -595,13 +595,14 @@ def create_tower(inputs, targets, gpu_idx, scope):
         outputs = create_generator_resgan(generator_inputs=inputs, generator_outputs_channels=out_channels,gpu_idx=gpu_idx+1)
 
     ############### Create VGG model for perceptual loss ####################################
-    with tf.device("/gpu:%d" % (gpu_idx)):    
-        with tf.name_scope("real_vgg") as scope:
-            with tf.variable_scope("vgg"):
-                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
-        with tf.name_scope("fake_vgg") as scope:
-            with tf.variable_scope("vgg", reuse=True):
-                fake_vgg_logits, fake_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+    with tf.device("/gpu:%d" % (gpu_idx)):
+        if a.vgg:
+            with tf.name_scope("real_vgg") as scope:
+                with tf.variable_scope("vgg"):
+                    real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+            with tf.name_scope("fake_vgg") as scope:
+                with tf.variable_scope("vgg", reuse=True):
+                    fake_vgg_logits, fake_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
     
 
     ############### Create Discriminator ####################################

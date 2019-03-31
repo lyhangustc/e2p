@@ -23,6 +23,9 @@ class BaseOptions():
         self.parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
+        
+        self.parser.add_argument("--use_vgg", dest="vgg", action="store_true", help="use pretrained vgg model for perceptual loss")
+        self.parser.set_defaults(vgg=False)
         self.parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray") # TODO: switch to num_D
         self.parser.set_defaults(double_D=True)
 
