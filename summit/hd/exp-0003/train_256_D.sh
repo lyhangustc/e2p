@@ -3,7 +3,7 @@ cd /gdata/liyh/project/e2p
 
 python p2p_HD.py \
 --mode train \
---output_dir /gdata/liyh/data/CelebA-HD/checkpoint/exp-0003_256_D \
+--output_dir /gdata/liyh/data/CelebA-HD/checkpoint/exp-0003_256_D_cut \
 --max_epochs 2000 \
 --input_dir /gdata/liyh/data/CelebA-HD/data/tfrecord  \
 --batch_size 8 \

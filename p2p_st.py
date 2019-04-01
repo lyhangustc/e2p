@@ -18,6 +18,7 @@ import scipy.io as sio
 import warnings
 from functools import partial
 from nets import resnet_utils
+from options.train_options import TrainOptions
 from models import *
 from vgg import * 
 import ops
@@ -25,80 +26,7 @@ import ops
 slim = tf.contrib.slim
 resnet_arg_scope = resnet_utils.resnet_arg_scope
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_dir", help="path to folder containing images")
-parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
-parser.add_argument("--output_dir", required=True, help="where to put output files")
-parser.add_argument("--seed", type=int)
-parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
-
-parser.add_argument("--max_steps", type=int, help="number of training steps (0 to disable)")
-parser.add_argument("--max_epochs", type=int, help="number of training epochs")
-parser.add_argument("--summary_freq", type=int, default=20, help="update summaries every summary_freq steps")
-parser.add_argument("--progress_freq", type=int, default=20, help="display progress every progress_freq steps")
-parser.add_argument("--trace_freq", type=int, default=0, help="trace execution every trace_freq steps")
-parser.add_argument("--display_freq", type=int, default=50, help="write current training images every display_freq steps")
-parser.add_argument("--save_freq", type=int, default=5000, help="save model every save_freq steps, 0 to disable")
-parser.add_argument("--evaluate_freq", type=int, default=5000, help="evaluate training data every save_freq steps, 0 to disable")
-
-parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd version of CelebA dataset. By default, hd version is used.")
-parser.set_defaults(flip=True)
-parser.add_argument("--aspect_ratio", type=float, default=1.0, help="aspect ratio of output images (width/height)")
-parser.add_argument("--batch_size", type=int, default=8, help="number of images in batch")
-parser.add_argument("--which_direction", type=str, default="AtoB", choices=["AtoB", "BtoA"])
-parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
-parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
-parser.add_argument("--scale_size", type=int, default=530, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--target_size", type=int, default=512, help="scale images to this size before cropping to 256x256")
-parser.add_argument("--flip", dest="flip", action="store_true", help="flip images horizontally")
-parser.add_argument("--no_flip", dest="flip", action="store_false", help="don't flip images horizontally")
-parser.set_defaults(flip=True)
-parser.add_argument("--random_crop", dest="random_crop", action="store_true", help="crop images randomly")
-parser.set_defaults(random_crop=False)
-parser.add_argument("--monochrome", dest="monochrome", action="store_true", help="convert image from rgb to gray")
-parser.set_defaults(monochrome=False)
-parser.add_argument("--lr_gen", type=float, default=0.0002, help="initial learning rate for adam")
-parser.add_argument("--lr_discrim", type=float, default=0.00002, help="initial learning rate for adam")
-parser.add_argument("--beta1", type=float, default=0.5, help="momentum term of adam")
-parser.add_argument("--l1_weight", type=float, default=100.0, help="weight on L1 term for generator gradient")
-parser.add_argument("--gan_weight", type=float, default=1.0, help="weight on GAN term for generator gradient")
-parser.add_argument("--fm_weight", type=float, default=1.0, help="weight on feature matching term for generator gradient")
-parser.add_argument("--style_weight", type=float, default=1.0, help="weight on style loss term for generator gradient")
-
-#YuhangLi
-parser.add_argument("--num_unet", type=int, default=10, help="number of u-connection layers, used only when generator is encoder-decoder")
-parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
-parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed"])
-parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray")
-parser.set_defaults(double_D=True)
-parser.add_argument("--load_image", dest="load_tfrecord", action="store_false", help="if true, read dataset from TFRecord, otherwise from images")
-parser.set_defaults(load_tfrecord=True)
-parser.add_argument("--num_examples", required=True, type=int, help="number of training/testing examples in TFRecords. required, since TFRecords do not have metadata")
-parser.add_argument("--channel_fac", default=16, type=int, help="faction of channel in self attention modual. Set to large to save GPU memory")
-parser.add_argument("--enc_atten", type=str, default="FTFFF")
-parser.add_argument("--dec_atten", type=str, default="FFFTF")
-parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
-parser.set_defaults(sn=True)
-parser.add_argument("--no_fm", dest="fm", action="store_false", help="do not use feature matching loss")
-parser.set_defaults(fm=True)
-parser.add_argument("--no_style_loss", dest="style_loss", action="store_false", help="do not use style loss")
-parser.set_defaults(style_loss=True)
-parser.add_argument("--residual_blocks", type=int, default=8, help="number of residual blocks in resgan generator")
-parser.add_argument("--num_feature_matching", type=int, default=3, help="number of layers in feature matching loss, count from the last layer of the discriminator")
-parser.add_argument("--num_style_loss", type=int, default=3, help="number of layers in style loss, count from the last layer of the discriminator")
-parser.add_argument("--num_vgg_class", type=int, default=1000, help="number of class of pretrained vgg network")
-parser.add_argument("--num_gpus", type=int, default=4, help="number of GPUs used for training")
-parser.add_argument("--num_gpus_per_tower", type=int, default=2, help="number of GPUs per tower used for training")
-parser.add_argument("--lr_decay_steps_D", type=int, default=10000, help="learning rate decay steps for discriminator")
-parser.add_argument("--lr_decay_steps_G", type=int, default=10000, help="learning rate decay steps for generator")
-parser.add_argument("--lr_decay_factor_D", type=float, default=0.1, help="learning rate decay factor for discriminator")
-parser.add_argument("--lr_decay_factor_G", type=float, default=0.1, help="learning rate decay factor for generator")
-parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
-
-# export options
-parser.add_argument("--output_filetype", default="png", choices=["png", "jpeg"])
-a = parser.parse_args()
+a = TrainOptions().parse()
 
 EPS = 1e-12
 
@@ -194,48 +122,83 @@ def parse_function_test(example_proto):
     return photo, condition, filenames 
 
 def parse_function_test_hd(example_proto):        
+    '''
+     
+    '''            
     features = {
             'filename': tf.FixedLenFeature([], tf.string),
             'height': tf.FixedLenFeature([], tf.int64),
             'width': tf.FixedLenFeature([], tf.int64),
             'depth': tf.FixedLenFeature([], tf.int64),
             'photo': tf.FixedLenFeature([], tf.string),
-            # 'mask': tf.FixedLenFeature([], tf.string),
+            'hed': tf.FixedLenFeature([], tf.string),
             'edge': tf.FixedLenFeature([], tf.string),
             'df': tf.FixedLenFeature([], tf.string)
             }        
     
     parsed_features = tf.parse_single_example(example_proto, features=features) 
     
+    
     filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
     photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
-    photo = tf.reshape(photo, [218, 178, 3])  
-    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
-    edge = tf.reshape(edge, [218, 178, 1])
-    df = tf.decode_raw(parsed_features['df'], tf.float64) 
-    df = tf.reshape(df, [218, 178, 1])   
-    
-    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
-    photo = photo * 2. -1.     
-    
-    edge = (edge) * 2. - 1.
-    df = df/tf.reduce_max(df)
-    df = (df) * 2. - 1.
-    
+    photo = tf.reshape(photo, [512, 512, 3])  
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
+    photo = photo * 2. -1.
     height = parsed_features['height']
     width = parsed_features['width']
-    print(height, width)
-  
-    edge = transform(tf.image.grayscale_to_rgb(edge))
-    df = transform(tf.image.grayscale_to_rgb(df))
-    photo = transform(photo)     
-    
+    depth = parsed_features['depth']
+    print(height, width, depth)
+
+    photo = transform(photo)   
+
     if a.input_type == "df":
+        df = tf.decode_raw(parsed_features['df'], tf.float32) 
+        df = tf.reshape(df, [512, 512, 1])   
+        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
+        df = df / a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = (df) * 2. - 1.    
+        df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
+
     elif a.input_type == "edge": 
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = (edge) * 2. - 1.
+        edge = transform(tf.image.grayscale_to_rgb(edge))
         condition = edge
 
-    return photo, condition, filenames 
+    elif a.input_type == "hed": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        hed = (hed) * 2. - 1.
+        hed = transform(tf.image.grayscale_to_rgb(hed))
+        condition = hed
+        
+    elif a.input_type == "vg": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        #hed = (hed) * 2. - 1.
+        #hed = transform(tf.image.grayscale_to_rgb(hed))
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = 1. - edge
+        #edge = transform(tf.image.grayscale_to_rgb(edge))
+
+        vg = tf.multiply(hed, edge)
+        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+        vg = ops.distance_transform(vg)
+        vg = tf.reshape(vg, [512, 512, 1])
+        #vg = vg / a.df_norm_value
+        vg = vg / tf.reduce_max(vg)
+        #vg = 2. - vg * 2.
+        vg = transform(tf.image.grayscale_to_rgb(vg))
+
+        print(vg.get_shape())
+
+        condition = vg
+    return photo, condition, filenames
 
 def parse_function(example_proto):
     '''
@@ -295,7 +258,7 @@ def parse_function(example_proto):
 
 def parse_function_hd(example_proto):
     '''
-    Mask is not used, for future applications.    
+     
     '''            
     features = {
             'filename': tf.FixedLenFeature([], tf.string),
@@ -303,7 +266,7 @@ def parse_function_hd(example_proto):
             'width': tf.FixedLenFeature([], tf.int64),
             'depth': tf.FixedLenFeature([], tf.int64),
             'photo': tf.FixedLenFeature([], tf.string),
-            'mask': tf.FixedLenFeature([], tf.string),
+            'hed': tf.FixedLenFeature([], tf.string),
             'edge': tf.FixedLenFeature([], tf.string),
             'df': tf.FixedLenFeature([], tf.string)
             }        
@@ -313,40 +276,63 @@ def parse_function_hd(example_proto):
     
     filenames = tf.decode_raw(parsed_features['filename'], tf.uint8)
     photo = tf.decode_raw(parsed_features['photo'], tf.uint8)
-    photo = tf.reshape(photo, [218, 178, 3])  
-    # mask = tf.decode_raw(parsed_features['mask'], tf.uint8)
-    # mask = tf.reshape(mask, [218, 178, 1])
-    edge = tf.decode_raw(parsed_features['edge'], tf.float32) 
-    edge = tf.reshape(edge, [218, 178, 1])
-    df = tf.decode_raw(parsed_features['df'], tf.float64) 
-    df = tf.reshape(df, [218, 178, 1])   
-    
-    photo = tf.image.convert_image_dtype(photo, dtype=tf.float64)
-    photo = photo * 2. -1.    
-    #mask = tf.image.convert_image_dtype(mask, dtype=tf.float64)
-    #mask = mask * 2. -1.  
-    
-    
-    edge = (edge) * 2. - 1.
-    df = df/tf.reduce_max(df)
-    df = (df) * 2. - 1.
-    
+    photo = tf.reshape(photo, [512, 512, 3])  
+    photo = tf.image.convert_image_dtype(photo, dtype=tf.float32)
+    photo = photo * 2. -1.
     height = parsed_features['height']
     width = parsed_features['width']
-    print(height, width)
+    depth = parsed_features['depth']
+    print(height, width, depth)
 
-    seed = random.randint(0, 2**31 - 1)
-
-    edge = transform(tf.image.grayscale_to_rgb(edge))
-    df = transform(tf.image.grayscale_to_rgb(df))
     photo = transform(photo)   
-    # mask = transform(mask)   
-        
+
     if a.input_type == "df":
+        df = tf.decode_raw(parsed_features['df'], tf.float32) 
+        df = tf.reshape(df, [512, 512, 1])   
+        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
+        df = df / a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = (df) * 2. - 1.    
+        df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
+
     elif a.input_type == "edge": 
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = (edge) * 2. - 1.
+        edge = transform(tf.image.grayscale_to_rgb(edge))
         condition = edge
 
+    elif a.input_type == "hed": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        hed = (hed) * 2. - 1.
+        hed = transform(tf.image.grayscale_to_rgb(hed))
+        condition = hed
+        
+    elif a.input_type == "vg": 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.reshape(hed, [512, 512, 1])
+        #hed = (hed) * 2. - 1.
+        #hed = transform(tf.image.grayscale_to_rgb(hed))
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+        edge = tf.reshape(edge, [512, 512, 1])
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = 1. - edge
+        #edge = transform(tf.image.grayscale_to_rgb(edge))
+
+        vg = tf.multiply(hed, edge)
+        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+        vg = ops.distance_transform(vg)
+        vg = tf.reshape(vg, [512, 512, 1])
+        #vg = vg / a.df_norm_value
+        vg = vg / tf.reduce_max(vg)
+        #vg = 2. - vg * 2.
+        vg = transform(tf.image.grayscale_to_rgb(vg))
+
+        print(vg.get_shape())
+
+        condition = vg
     return photo, condition, filenames
 
 def read_tfrecord():
@@ -364,7 +350,8 @@ def read_tfrecord():
             dataset = dataset.map(parse_function_test)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
         
     dataset = dataset.repeat()  # Repeat the input indefinitely.
-    dataset = dataset.shuffle(buffer_size=10000)
+    if a.mode=='train':
+        dataset = dataset.shuffle(buffer_size=1000)
     dataset = dataset.batch(a.batch_size)
     iterator = dataset.make_one_shot_iterator()
     photo, condition, filename = iterator.get_next()
@@ -415,31 +402,34 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             net = tf.nn.relu(net)
             print(net.get_shape())
 
-            net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.conv(net, channels=a.ngf*8, kernel=4, stride=2, pad=1, use_bias=True, sn=a.sn, scope='encoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
         with tf.variable_scope("middle"):
-            for i in range(a.residual_blocks):
-                net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
+            for i in range(a.num_residual_blocks):
+                net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
     
     with tf.device("/gpu:%d" % (gpu_idx)):
         with tf.variable_scope("decoder"):
-            net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+            #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+            #net = tf.contrib.layers.instance_norm(net)
+            #net = tf.nn.relu(net)
+            #print(net.get_shape())
 
-            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_2')
+            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
             print(net.get_shape())
 
             # self-attention layer
-            #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-            #                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+    with tf.device("/gpu:%d" % (gpu_idx+1)):
+        with tf.variable_scope("self-attention"): 
+            net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                            input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
+        with tf.variable_scope("end"):
             net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
             net = tf.contrib.layers.instance_norm(net)
             net = tf.nn.relu(net)
@@ -447,7 +437,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
             #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
-            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_0')            
+            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
             net = tf.tanh(net)
             print(net.get_shape())
 
@@ -1054,6 +1044,141 @@ def create_model(inputs, targets):
         train=tf.group(update_losses, incr_global_step, gen_train),
     )
 
+def create_model_finetune(inputs, targets):
+    #with tf.device("/gpu:1"):
+    with tf.variable_scope("generator") as scope:
+        # float32 for TensorFlow
+        inputs = tf.cast(inputs, tf.float32)
+        targets = tf.cast(targets, tf.float32)
+        out_channels = int(targets.get_shape()[-1])
+        if a.generator == 'res':
+            outputs = create_generator_resnet(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'ir':
+            outputs = create_generator_irnet(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'ed':
+            outputs = create_generator_ed(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'mru':
+            outputs = create_generator_mru(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'sa':
+            outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
+        elif a.generator == 'sa_I':
+            outputs, beta_list = create_generator_selfatt(inputs, out_channels)
+        elif a.generator == 'resgan':
+            outputs = create_generator_resgan(inputs, out_channels)
+
+    with tf.device("/gpu:0"):    
+        with tf.name_scope("real_vgg") as scope:
+            with tf.variable_scope("vgg"):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+        with tf.name_scope("fake_vgg") as scope:
+            with tf.variable_scope("vgg", reuse=True):
+                real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
+    # create two copies of discriminator, one for real pairs and one for fake pairs
+    # they share the same underlying variables
+    with tf.device("/gpu:0"):
+        if a.discriminator == "conv":
+            create_discriminator = create_discriminator_conv
+            create_discriminator_global = create_discriminator_conv_global   
+        elif a.discriminator == "resgan":
+            create_discriminator = create_discriminator_resgan
+            create_discriminator_global = create_discriminator_conv_global 
+        
+        ############### Discriminator outputs ###########################
+        with tf.name_scope("real_discriminator_patch"):
+            with tf.variable_scope("discriminator_patch"):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_real_patch, feature_real_patch = create_discriminator(inputs, targets)
+        
+        with tf.name_scope("real_discriminator_global"):
+            with tf.variable_scope("discriminator_global"):
+                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
+                predict_real_global, feature_real_global = create_discriminator_global(inputs, targets)
+        
+        with tf.name_scope("fake_discriminator"):
+            with tf.variable_scope("discriminator_patch", reuse=True):
+                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
+                predict_fake_patch, feature_fake_patch = create_discriminator(inputs, outputs)
+                
+        with tf.name_scope("fake_discriminator_global"):
+            with tf.variable_scope("discriminator_global", reuse=True):
+                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
+                predict_fake_global, feature_fake_global = create_discriminator_global(inputs, outputs)            
+        
+        ################### Loss #########################################
+        with tf.name_scope("discriminator_loss"):
+            # minimizing -tf.log will try to get inputs to 1
+            # predict_real => 1
+            # predict_fake => 0
+            discrim_loss = tf.reduce_mean(-( \
+                tf.log(predict_real_patch + EPS) \
+                + tf.log(predict_real_global + EPS) \
+                + tf.log(1 - predict_fake_patch + EPS) \
+                + tf.log(1 - predict_fake_global + EPS) \
+                ))
+        
+        gen_loss = 0
+        with tf.name_scope("generator_loss"):
+            # predict_fake => 1
+            # abs(targets - outputs) => 0
+            gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
+            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
+            gen_loss += gen_loss_GAN * a.gan_weight
+            gen_loss += gen_loss_L1 * a.l1_weight
+
+        with tf.name_scope("generator_feature_matching_loss"):
+            gen_loss_fm = 0
+            if a.fm:
+                for i in range(a.num_feature_matching):
+                    gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
+                gen_loss += gen_loss_fm * a.fm_weight
+
+        ################## Train ops #########################################
+        with tf.name_scope("discriminator_train"):
+            discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
+            discrim_optim = tf.train.AdamOptimizer(a.lr_discrim, a.beta1)
+            discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
+            discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
+         
+        with tf.name_scope("generator_train"):
+            with tf.control_dependencies([discrim_train]):
+                gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
+                gen_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
+                gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
+                gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
+
+        with tf.name_scope("finetune_train"):           
+            finetune_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator/self-attention")]
+            finetune_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
+            finetune_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
+            finetune_train = gen_optim.apply_gradients(gen_grads_and_vars)
+
+
+
+        ema = tf.train.ExponentialMovingAverage(decay=0.99)
+        update_losses = ema.apply([discrim_loss, gen_loss, gen_loss_GAN, gen_loss_fm, gen_loss_L1])
+
+        global_step = tf.contrib.framework.get_or_create_global_step()
+        incr_global_step = tf.assign(global_step, global_step+1)
+
+    return Model(
+        predict_real=predict_real_patch,
+        predict_fake=predict_fake_patch,
+        discrim_loss=ema.average(discrim_loss),
+        discrim_grads_and_vars=discrim_grads_and_vars,
+        gen_loss_GAN=ema.average(gen_loss_GAN),
+        gen_loss_L1=ema.average(gen_loss_L1),
+        gen_loss_fm=ema.average(gen_loss_fm),
+        gen_grads_and_vars=gen_grads_and_vars,
+        outputs=outputs,
+        # beta_list=beta_list,
+        beta_list=None,
+        train=tf.group(update_losses, incr_global_step, finetune_train),
+    )
+
 def save_images(fetches, step=None):
     image_dir = os.path.join(a.output_dir, "images")
     if not os.path.exists(image_dir):
@@ -1214,8 +1339,11 @@ def main():
     examples, iterator  = read_tfrecord()
     print("examples count = %d" % examples.count)
 
-    # inputs and targets are [batch_size, height, width, channels]
-    model = create_model(examples.inputs, examples.targets)
+    if a.finetune:
+        model = create_model_finetune(examples.inputs, examples.targets)
+    else:
+        # inputs and targets are [batch_size, height, width, channels]
+        model = create_model(examples.inputs, examples.targets)
 
     # undo colorization splitting on images that we use for display/output
 
@@ -1285,7 +1413,17 @@ def main():
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
-    saver = tf.train.Saver(max_to_keep=1)
+
+    if a.finetune:
+        restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator") 
+        saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
+        for var in restore_var:
+            print(var)
+    else:
+        saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
     sess_config = tf.ConfigProto(allow_soft_placement=True)
@@ -1316,7 +1454,7 @@ def main():
                 # temporaly commented, error for unknown reason    
                 # index_path = append_index(filesets)
 
-            print("wrote index at", index_path)
+                #print("wrote index at", index_path)
         else:
             """ Training
             Basic idea of training here is:

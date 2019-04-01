@@ -10,6 +10,8 @@ class BaseOptions():
         ## experiment
         self.parser.add_argument("--input_dir", help="path to folder containing images")
         self.parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
+        self.parser.add_argument("--finetune", dest="finetune", action="store_true", help="convert image from rgb to gray") # TODO: switch to num_D
+        self.parser.set_defaults(finetune=False)
         self.parser.add_argument("--output_dir", required=True, help="where to put output files")
         self.parser.add_argument("--seed", type=int)
         self.parser.add_argument("--checkpoint", default=None, help="directory with checkpoint to resume training from or use for testing")
