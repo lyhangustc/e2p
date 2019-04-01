@@ -410,36 +410,67 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
         with tf.variable_scope("middle"):
             for i in range(a.num_residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
-    
-    with tf.device("/gpu:%d" % (gpu_idx)):
-        with tf.variable_scope("decoder"):
-            #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
-            #net = tf.contrib.layers.instance_norm(net)
-            #net = tf.nn.relu(net)
-            #print(net.get_shape())
+    if 1: # 1 for attention + last2; 0 for attetntion + last1
+        with tf.device("/gpu:%d" % (gpu_idx)):
+            with tf.variable_scope("decoder"):
+                #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+                #net = tf.contrib.layers.instance_norm(net)
+                #net = tf.nn.relu(net)
+                #print(net.get_shape())
 
-            net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
+                net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())
 
-            # self-attention layer
-    with tf.device("/gpu:%d" % (gpu_idx+1)):
-        with tf.variable_scope("self-attention"): 
-            net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                            input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+        # self-attention layer
+        with tf.device("/gpu:%d" % (gpu_idx+1)):
+            with tf.variable_scope("self-attention"): 
+                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
-        with tf.variable_scope("end"):
-            net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
-            net = tf.contrib.layers.instance_norm(net)
-            net = tf.nn.relu(net)
-            print(net.get_shape())
-            #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
-            #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
+            with tf.variable_scope("end"):
+                net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())
+                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
+                #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
-            net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
-            net = tf.tanh(net)
-            print(net.get_shape())
+                net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
+                net = tf.tanh(net)
+                print(net.get_shape())
+    else:
+        with tf.device("/gpu:%d" % (gpu_idx)):
+            with tf.variable_scope("decoder"):
+                #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+                #net = tf.contrib.layers.instance_norm(net)
+                #net = tf.nn.relu(net)
+                #print(net.get_shape())
+
+                net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())
+
+                net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())        
+        # self-attention layer
+        with tf.device("/gpu:%d" % (gpu_idx+1)):
+            with tf.variable_scope("self-attention"): 
+                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+
+
+                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
+                #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
+
+            with tf.variable_scope("end"):
+                net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
+                net = tf.tanh(net)
+                print(net.get_shape())
 
     return net
 
@@ -1419,11 +1450,11 @@ def main():
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator") 
-        saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
+        restore_saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
         for var in restore_var:
             print(var)
-    else:
-        saver = tf.train.Saver(max_to_keep=1)
+
+    saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
     sess_config = tf.ConfigProto(allow_soft_placement=True)
@@ -1432,9 +1463,14 @@ def main():
         print("parameter_count =", sess.run(parameter_count))
 
         if a.checkpoint is not None:
-            print("loading model from checkpoint")
-            checkpoint = tf.train.latest_checkpoint(a.checkpoint)
-            saver.restore(sess, checkpoint)
+            if a.finetune:
+                print("loading partial model from checkpoint for finetuning")
+                checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+                restore_saver.restore(sess, checkpoint)
+            else:
+                print("loading model from checkpoint")
+                checkpoint = tf.train.latest_checkpoint(a.checkpoint)
+                saver.restore(sess, checkpoint)
 
         max_steps = 2**32
         if a.max_epochs is not None:
