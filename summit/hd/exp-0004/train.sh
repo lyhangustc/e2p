@@ -6,7 +6,7 @@ python p2p_st.py \
 --output_dir /gdata/liyh/data/CelebA-HD/checkpoint/exp-0004_finetune_sa_last2_end_dgx \
 --input_dir /gdata/liyh/data/CelebA-HD/data/tfrecord  \
 --batch_size 1 \
---num_examples 3000 \
+--num_examples 27000 \
 --generator resgan \
 --discriminator resgan \
 --input_type df \

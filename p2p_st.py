@@ -770,6 +770,11 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
         output_e6 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
         layers.append(output)
     
+    with tf.variable_scope("middle"):
+        for i in range(a.num_residual_blocks):
+            net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
+
+
     with tf.variable_scope("decoder_6"):
         # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
         input = layers[-1]
@@ -1053,6 +1058,9 @@ def create_model(inputs, targets):
             beta_list = []
         elif a.generator == 'mru':
             outputs = create_generator_mru(inputs, out_channels)
+            beta_list = []
+        elif a.generator == 'mru_res':
+            outputs = create_generator_mru_res(inputs, out_channels)
             beta_list = []
         elif a.generator == 'sa':
             outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)

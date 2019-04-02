@@ -22,7 +22,7 @@ class BaseOptions():
         self.parser.add_argument("--batch_size", type=int, default=8, help="number of images in batch")
 
         ## architecture selection
-        self.parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "sa", "sa_I", "resgan"])
+        self.parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "mru_res", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
         
