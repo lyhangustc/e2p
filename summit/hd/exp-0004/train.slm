@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH --job-name=hd_exp-0004_finetune_sa_last2_dgx
+#SBATCH --gres=gpu:4
+#SBATCH --output=/gdata/liyh/project/e2p/summit/hd/exp-0004/hd_exp-0004_finetune_sa_last2_dgx.out
+echo "Submitted from:"$SLURM_SUBMIT_DIR" on node:"$SLURM_SUBMIT_HOST
+echo "Running on node "$SLURM_JOB_NODELIST 
+echo "Allocate Gpu Units:"$CUDA_VISIBLE_DEVICES
+##program here ##
+
+startdocker  -D /gdata/liyh/ -P /tmp/ -s /gdata/liyh/project/e2p/summit/hd/exp-0004/train.sh bit:5000/chenc-opencv3.1.0-tf1.7.0-pytorch0.3.1
+ 
+echo 0004_finetune_sa_last2_dgx
+echo commit 969fcd831f3cb8eded128c2ce3cf4d1b85425f5a

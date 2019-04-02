@@ -1,7 +1,7 @@
 #!/bin/bash
 cd /gdata/liyh/project/e2p
 
-python p2p_HD.py \
+python p2p_st.py \
 --mode train \
 --output_dir /gdata/liyh/data/CelebA-HD/checkpoint/exp-0003_256_D_cut \
 --max_epochs 2000 \
@@ -14,4 +14,5 @@ python p2p_HD.py \
 --scale_size 256 \
 --target_size 256 \
 --num_gpus 2 \
---stabilization wgan  
+--stabilization wgan \
+--no_double_D

@@ -3,7 +3,7 @@ cd /gdata/liyh/project/e2p
 
 python p2p_st.py \
 --mode train \
---output_dir /gdata/liyh/data/CelebA-HD/output/exp-0004_finetune_sa_last1 \
+--output_dir /gdata/liyh/data/CelebA-HD/checkpoint/exp-0004_finetune_sa_last2_end_dgx \
 --input_dir /gdata/liyh/data/CelebA-HD/data/tfrecord  \
 --batch_size 1 \
 --num_examples 3000 \

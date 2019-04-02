@@ -10,7 +10,7 @@ class BaseOptions():
         ## experiment
         self.parser.add_argument("--input_dir", help="path to folder containing images")
         self.parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
-        self.parser.add_argument("--finetune", dest="finetune", action="store_true", help="convert image from rgb to gray") # TODO: switch to num_D
+        self.parser.add_argument("--finetune", dest="finetune", action="store_true", help="finetune model from a restored model") 
         self.parser.set_defaults(finetune=False)
         self.parser.add_argument("--output_dir", required=True, help="where to put output files")
         self.parser.add_argument("--seed", type=int)
@@ -28,8 +28,9 @@ class BaseOptions():
         
         self.parser.add_argument("--use_vgg", dest="vgg", action="store_true", help="use pretrained vgg model for perceptual loss")
         self.parser.set_defaults(vgg=False)
-        self.parser.add_argument("--double_D", dest="double_D", action="store_true", help="convert image from rgb to gray") # TODO: switch to num_D
+        self.parser.add_argument("--no_double_D", dest="double_D", action="store_false", help="use both global and local model") # TODO: switch to num_D
         self.parser.set_defaults(double_D=True)
+        self.parser.add_argument("--dropout", type=float, default=0.0, help="the nomalizaiton value of distance fields")
 
         self.parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
         self.parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
