@@ -739,89 +739,92 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
     
     layers = []
 
+    ngf = a.ngf
+
     # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
     with tf.variable_scope("encoder_1"):
         output_e1 = conv(generator_inputs, a.ngf, stride=2)
-        rectified = lrelu(output, 0.2)
-        layers.append(output)
+        rectified = lrelu(output_e1, 0.2)
+        layers.append(output_e1)
 
     with tf.variable_scope("encoder_2"):
         # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
         output_e2 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 2, stride=2)
-        layers.append(output)
+        layers.append(output_e2)
 
     with tf.variable_scope("encoder_3"):
         # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
         output_e3 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 4, stride=2)
-        layers.append(output)
+        layers.append(output_e3)
 
     with tf.variable_scope("encoder_4"):
         # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
         output_e4 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 6, stride=2)
-        layers.append(output)
+        layers.append(output_e4)
 
     with tf.variable_scope("encoder_5"):
         # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
         output_e5 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
-        layers.append(output)
+        layers.append(output_e5)
 
     with tf.variable_scope("encoder_6"):
         # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
         output_e6 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
-        layers.append(output)
+        layers.append(output_e6)
     
     with tf.variable_scope("middle"):
+        net = layers[-1]
         for i in range(a.num_residual_blocks):
-            net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
-
+            net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
+        layers.append(net)
 
     with tf.variable_scope("decoder_6"):
         # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
         input = layers[-1]
-        output_d6 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+        output_d6 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
         if a.dropout > 1e-5:
-            output = tf.nn.dropout(output, keep_prob=1 - a.dropout)
-        layers.append(output)
+            output_d6 = tf.nn.dropout(output_d6, keep_prob=1 - a.dropout)
+        layers.append(output_d6)
 
     with tf.variable_scope("decoder_5"):
         # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
         input = tf.concat([layers[-1], output_e5], axis=3)
-        output_d5 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+        output_d5 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
         if a.dropout > 1e-5:
-            output = tf.nn.dropout(output, keep_prob=1 - a.dropout)
-        layers.append(output)
+            output_d5 = tf.nn.dropout(output_d5, keep_prob=1 - a.dropout)
+        layers.append(output_d5)
 
     with tf.variable_scope("decoder_4"):
         # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
         input = tf.concat([layers[-1], output_e4], axis=3)
-        output_d4 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+        output_d4 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 4, stride=2)
         if a.dropout > 1e-5:
-            output = tf.nn.dropout(output, keep_prob=1 - a.dropout)
-        layers.append(output)
+            output_d4 = tf.nn.dropout(output_d4, keep_prob=1 - a.dropout)
+        layers.append(output_d4)
 
     with tf.variable_scope("decoder_3"):
         # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
         input = tf.concat([layers[-1], output_e3], axis=3)
-        output_d3 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+        output_d3 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
         if a.dropout > 1e-5:
-            output = tf.nn.dropout(output, keep_prob=1 - a.dropout)
-        layers.append(output)
+            output_d3 = tf.nn.dropout(output_d3, keep_prob=1 - a.dropout)
+        layers.append(output_d3)
 
     with tf.variable_scope("decoder_2"):
         # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
         input = tf.concat([layers[-1], output_e2], axis=3)
-        output_d2 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), out_channels, stride=2)
+        output_d2 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
         if a.dropout > 1e-5:
-            output = tf.nn.dropout(output, keep_prob=1 - a.dropout)
-        layers.append(output)
+            output_d2 = tf.nn.dropout(output_d2, keep_prob=1 - a.dropout)
+        layers.append(output_d2)
 
     with tf.variable_scope("decoder_1"):
         # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
         input = tf.concat([layers[-1], output_e1], axis=3)
         rectified = tf.nn.relu(input)
-        output = deconv(rectified, generator_outputs_channels)
-        output = tf.tanh(output)
-        layers.append(output)
+        output_d1 = deconv(rectified, generator_outputs_channels)
+        output_d1 = tf.tanh(output_d1)
+        layers.append(output_d1)
 
     return layers[-1]
 
@@ -1146,18 +1149,28 @@ def create_model(inputs, targets):
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
-            gen_loss_GAN = 0.5*(tf.reduce_mean(-tf.log(predict_fake_patch + EPS)) + \
-                tf.reduce_mean(-tf.log(predict_fake_global + EPS)))
+            if a.double_D:
+                gen_loss_GAN = 0.5*(tf.reduce_mean(-tf.log(predict_fake_patch + EPS)) + \
+                    tf.reduce_mean(-tf.log(predict_fake_global + EPS)))
+            else:
+                gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
+
             gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
             gen_loss += gen_loss_GAN * a.gan_weight
             gen_loss += gen_loss_L1 * a.l1_weight
 
         with tf.name_scope("generator_feature_matching_loss"):
-            gen_loss_fm = 0
+            gen_loss_fm = tf.get_variable("gen_loss_fm", initializer=tf.constant(0.0))
             if a.fm:
                 for i in range(a.num_feature_matching):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
                 gen_loss += gen_loss_fm * a.fm_weight
+            
+            gen_loss_style = tf.get_variable("gen_loss_style",initializer=tf.constant(0.0))
+            if a.style_loss:
+                for i in range(a.num_style_loss):
+                    gen_loss_style += tf.reduce_mean(tf.abs(ops.gram_matrix(feature_fake_patch[-i-1]) - ops.gram_matrix(feature_real_patch[-i-1])))
+                gen_loss += gen_loss_style * a.style_weight
 
         ################## Train ops #########################################
         with tf.name_scope("discriminator_train"):
@@ -1307,7 +1320,6 @@ def create_model_finetune_resgan(inputs, targets):
             finetune_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
             finetune_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
             finetune_train = gen_optim.apply_gradients(gen_grads_and_vars)
-
 
 
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
