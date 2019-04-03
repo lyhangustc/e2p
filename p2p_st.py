@@ -183,19 +183,18 @@ def parse_function_test_hd(example_proto):
         condition = hed
         
     elif a.input_type == "vg": 
-        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) # [0,1], 0~1: probability of being edge
         hed = tf.reshape(hed, [512, 512, 1])
-        #hed = (hed) * 2. - 1.
-        #hed = transform(tf.image.grayscale_to_rgb(hed))
-        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) # single pixel edge, 0 or 1, 0:edge, 1:background
         edge = tf.reshape(edge, [512, 512, 1])
         edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
-        edge = 1. - edge
-        #edge = transform(tf.image.grayscale_to_rgb(edge))
+        edge = 1. - edge # 1:edge, 0:background
 
-        vg = tf.multiply(hed, edge)
-        cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold)
-        vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg)))
+
+        vg = tf.multiply(hed, edge) # single pixle probability
+        cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold) # thresholding
+        vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg))) # single pixle probability after thresholding
         vg = ops.distance_transform(vg)
         vg = tf.reshape(vg, [512, 512, 1])
         if a.df_norm == 'value':
@@ -203,7 +202,6 @@ def parse_function_test_hd(example_proto):
         elif a.df_norm == 'max':
             vg = vg / tf.reduce_max(vg)
         vg = vg * 2. - 1.
-
 
         vg = transform(tf.image.grayscale_to_rgb(vg))
         condition = vg
@@ -320,27 +318,27 @@ def parse_function_hd(example_proto):
         condition = hed
         
     elif a.input_type == "vg": 
-        hed = tf.decode_raw(parsed_features['hed'], tf.float32) 
+        hed = tf.decode_raw(parsed_features['hed'], tf.float32) # [0,1], 0~1: probability of being edge
         hed = tf.reshape(hed, [512, 512, 1])
-        #hed = (hed) * 2. - 1.
-        #hed = transform(tf.image.grayscale_to_rgb(hed))
-        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
+
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) # single pixel edge, 0 or 1, 0:edge, 1:background
         edge = tf.reshape(edge, [512, 512, 1])
         edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
-        edge = 1. - edge
-        #edge = transform(tf.image.grayscale_to_rgb(edge))
+        edge = 1. - edge # 1:edge, 0:background
 
-        vg = tf.multiply(hed, edge)
-        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+
+        vg = tf.multiply(hed, edge) # single pixle probability
+        cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold) # thresholding
+        vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg))) # single pixle probability after thresholding
         vg = ops.distance_transform(vg)
         vg = tf.reshape(vg, [512, 512, 1])
-        #vg = vg / a.df_norm_value
-        vg = vg / tf.reduce_max(vg)
-        #vg = 2. - vg * 2.
+        if a.df_norm == 'value':
+            vg = vg / a.df_norm_value
+        elif a.df_norm == 'max':
+            vg = vg / tf.reduce_max(vg)
+        vg = vg * 2. - 1.
+
         vg = transform(tf.image.grayscale_to_rgb(vg))
-
-        print(vg.get_shape())
-
         condition = vg
     return photo, condition, filenames
 
@@ -373,7 +371,7 @@ def read_tfrecord():
     steps_per_epoch = int(math.ceil(a.num_examples / a.batch_size))
     
     # show read results for code test
-    if 0:
+    if 1:
         sess = tf.Session()
         photo1, condition1, filename1 = sess.run(iterator.get_next())
         #photo1 = photo1 * 255.
@@ -382,8 +380,8 @@ def read_tfrecord():
         print(photo1.shape)
         print(condition1.shape)
         Image.fromarray(photo1[0,:,:,:].astype(np.uint8), "RGB").save(os.path.join(a.output_dir, "test_photo.png"))
-        Image.fromarray(condition1[0,:,:,:].astype(np.uint8), "RGB").save(os.path.join(a.output_dir, "test_condition.png"))
-        print("filename:", filename1)
+        Image.fromarray(condition1[0,:,:,:].astype(np.uint8), "RGB").save(os.path.join(a.output_dir, "test_condition-%f.png" % (a.df_threshold)))
+        print("filename:", ''.join(chr(n) for n in filename1[0,:]))
     #sio.savemat(os.path.join('/data4T1/liyh/data/CelebA/tfrecord', "b2.mat"), {"predict": photo1[0,:,:,:]})
     #sio.savemat(os.path.join('/data4T1/liyh/data/CelebA/tfrecord', "a2.mat"), {"predict": mat1[0,:,:,:]})
     
@@ -427,7 +425,33 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
         with tf.variable_scope("middle"):
             for i in range(a.num_residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
-    if 1: # 1 for attention + last2; 0 for attetntion + last1
+
+    arch = 0
+
+    if arch ==0:
+            with tf.variable_scope("decoder"):
+                #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
+                #net = tf.contrib.layers.instance_norm(net)
+                #net = tf.nn.relu(net)
+                #print(net.get_shape())
+
+                net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())
+
+                net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
+                net = tf.contrib.layers.instance_norm(net)
+                net = tf.nn.relu(net)
+                print(net.get_shape())
+                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
+                #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
+
+                net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
+                net = tf.tanh(net)
+                print(net.get_shape())
+
+    elif arch == 1: # 1 for attention + last2; 0 for attetntion + last1
         with tf.device("/gpu:%d" % (gpu_idx)):
             with tf.variable_scope("decoder"):
                 #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
@@ -458,7 +482,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
                 net = tf.tanh(net)
                 print(net.get_shape())
-    else:
+    elif arch == 2:
         with tf.device("/gpu:%d" % (gpu_idx)):
             with tf.variable_scope("decoder"):
                 #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
@@ -1730,6 +1754,7 @@ def main():
 
 def test_reader():
     examples, iterator  = read_tfrecord()
+    return
 
 main()
 
