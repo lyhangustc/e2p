@@ -811,7 +811,7 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
     layers = []
 
     ngf = a.ngf
-    with tf.device("/gpu:1"):
+    with tf.device("/gpu:0"):
         # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
         with tf.variable_scope("encoder_1"):
             output_e1 = conv(generator_inputs, a.ngf, stride=2)
@@ -888,6 +888,16 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
             if a.dropout > 1e-5:
                 output_d2 = tf.nn.dropout(output_d2, keep_prob=1 - a.dropout)
             layers.append(output_d2)
+
+    # self-attention layer
+    with tf.device("/gpu:%d" % (1)):
+        if a.attention:
+            with tf.variable_scope("self-attention"): 
+                net = layers[-1]
+                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+                layers.append(net)
+
 
         with tf.variable_scope("decoder_1"):
             # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
@@ -1262,6 +1272,14 @@ def create_model(inputs, targets):
                 gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
                 gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
+        if a.finetune and (a.generator == 'mru' or a.generator == 'mru_res'):
+            with tf.name_scope("finetune_train"):           
+                finetune_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator/self-attention")] \
+                    + [var for var in tf.trainable_variables() if var.name.startswith("generator/decoder_1")]
+                finetune_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
+                finetune_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
+                finetune_train = gen_optim.apply_gradients(gen_grads_and_vars)
+
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
         
         update_losses = ema.apply(loss_list)
@@ -1269,20 +1287,36 @@ def create_model(inputs, targets):
         global_step = tf.train.get_or_create_global_step()
         incr_global_step = tf.assign(global_step, global_step+1)
 
-    return Model(
-        predict_real=predict_real_patch,
-        predict_fake=predict_fake_patch,
-        discrim_loss=ema.average(discrim_loss),
-        discrim_grads_and_vars=discrim_grads_and_vars,
-        gen_loss_GAN=ema.average(gen_loss_GAN),
-        gen_loss_L1=ema.average(gen_loss_L1),
-        gen_loss_fm=ema.average(gen_loss_fm),
-        gen_grads_and_vars=gen_grads_and_vars,
-        outputs=outputs,
-        # beta_list=beta_list,
-        beta_list=None,
-        train=tf.group(update_losses, incr_global_step, gen_train),
-    )
+    if a.finetune:
+        return Model(
+            predict_real=predict_real_patch,
+            predict_fake=predict_fake_patch,
+            discrim_loss=ema.average(discrim_loss),
+            discrim_grads_and_vars=discrim_grads_and_vars,
+            gen_loss_GAN=ema.average(gen_loss_GAN),
+            gen_loss_L1=ema.average(gen_loss_L1),
+            gen_loss_fm=ema.average(gen_loss_fm),
+            gen_grads_and_vars=gen_grads_and_vars,
+            outputs=outputs,
+            # beta_list=beta_list,
+            beta_list=None,
+            train=tf.group(update_losses, incr_global_step, finetune_train),
+        )
+    else:
+        return Model(
+            predict_real=predict_real_patch,
+            predict_fake=predict_fake_patch,
+            discrim_loss=ema.average(discrim_loss),
+            discrim_grads_and_vars=discrim_grads_and_vars,
+            gen_loss_GAN=ema.average(gen_loss_GAN),
+            gen_loss_L1=ema.average(gen_loss_L1),
+            gen_loss_fm=ema.average(gen_loss_fm),
+            gen_grads_and_vars=gen_grads_and_vars,
+            outputs=outputs,
+            # beta_list=beta_list,
+            beta_list=None,
+            train=tf.group(update_losses, incr_global_step, gen_train),
+        )
 
 def create_model_finetune_resgan(inputs, targets):
     #with tf.device("/gpu:1"):
@@ -1515,8 +1549,6 @@ def create_model_finetune_mru(inputs, targets):
                         + tf.log(1 - predict_fake_patch + EPS) \
                         ))
 
-    
-        
         gen_loss = 0
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
@@ -1762,6 +1794,8 @@ def main():
 
     if a.finetune and a.generator == 'resgan':
         model = create_model_finetune_resgan(examples.inputs, examples.targets)
+    #elif a.finetune and a.generator == 'mru':
+    #    model = create_model_finetune_mru(examples.inputs, examples.targets)
     else:
         # inputs and targets are [batch_size, height, width, channels]
         model = create_model(examples.inputs, examples.targets)
@@ -1853,6 +1887,26 @@ def main():
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_4") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_5") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_6") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_6") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_5") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_4") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_3") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_2") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_1") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_global")  \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_patch")  
+        restore_saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
+        for var in restore_var:
+            print(var)
+
+    if a.finetune and a.generator == 'mru_res':
+        restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_1") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_2") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_3") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_4") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_5") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_6") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_6") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_5") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_4") \
