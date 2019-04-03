@@ -1191,7 +1191,7 @@ def create_model(inputs, targets):
         with tf.name_scope("generator_loss"):
             # predict_fake => 1
             # abs(targets - outputs) => 0
-            if a.double_D:
+            if 0: # a.double_D: # TODO: 
                 gen_loss_GAN = 0.5*(tf.reduce_mean(-tf.log(predict_fake_patch + EPS)) + \
                     tf.reduce_mean(-tf.log(predict_fake_global + EPS)))
             else:
@@ -1201,18 +1201,23 @@ def create_model(inputs, targets):
             gen_loss += gen_loss_GAN * a.gan_weight
             gen_loss += gen_loss_L1 * a.l1_weight
 
+        loss_list = [discrim_loss, gen_loss, gen_loss_GAN, gen_loss_L1]
+
         with tf.name_scope("generator_feature_matching_loss"):
-            gen_loss_fm = tf.get_variable("gen_loss_fm", initializer=tf.constant(0.0))
+            gen_loss_fm = 0 # TODO: remove this line. (if remove, the later references should be modified.
             if a.fm:
+                gen_loss_fm = tf.get_variable("gen_loss_fm", initializer=tf.constant(0.0))
                 for i in range(a.num_feature_matching):
                     gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
                 gen_loss += gen_loss_fm * a.fm_weight
-            
-            gen_loss_style = tf.get_variable("gen_loss_style",initializer=tf.constant(0.0))
+                loss_list.append(gen_loss_fm)
+
             if a.style_loss:
+                gen_loss_style = tf.get_variable("gen_loss_style",initializer=tf.constant(0.0))
                 for i in range(a.num_style_loss):
                     gen_loss_style += tf.reduce_mean(tf.abs(ops.gram_matrix(feature_fake_patch[-i-1]) - ops.gram_matrix(feature_real_patch[-i-1])))
                 gen_loss += gen_loss_style * a.style_weight
+                loss_list.append(gen_loss_style)
 
         ################## Train ops #########################################
         with tf.name_scope("discriminator_train"):
@@ -1229,9 +1234,10 @@ def create_model(inputs, targets):
                 gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
 
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        update_losses = ema.apply([discrim_loss, gen_loss, gen_loss_GAN, gen_loss_fm, gen_loss_L1])
+        
+        update_losses = ema.apply(loss_list)
 
-        global_step = tf.contrib.framework.get_or_create_global_step()
+        global_step = tf.train.get_or_create_global_step()
         incr_global_step = tf.assign(global_step, global_step+1)
 
     return Model(
@@ -1367,7 +1373,7 @@ def create_model_finetune_resgan(inputs, targets):
         ema = tf.train.ExponentialMovingAverage(decay=0.99)
         update_losses = ema.apply([discrim_loss, gen_loss, gen_loss_GAN, gen_loss_fm, gen_loss_L1])
 
-        global_step = tf.contrib.framework.get_or_create_global_step()
+        global_step = tf.train.get_or_create_global_step()
         incr_global_step = tf.assign(global_step, global_step+1)
 
     return Model(
@@ -1401,16 +1407,23 @@ def save_images(fetches, step=None):
             fn = ''.join(chr(n) for n in fn)
             name = fn
             fileset = {"name": name, "step": step}
-            # for kind in ["inputs", "outputs", "targets"]:
-            # YuhangLi: only save the outputs to save the driver space when tuning hyper-params 
-            # YuhangLi: if you want to add "inputs" and "targets" in kinds, please mkdir for them
-            for kind in ["outputs"]:
-                filename = name + ".png"
-                out_path = os.path.join(image_dir, filename)
-                contents = fetches[kind][i]
-                # images have been converted to png binary and can be saved by only f.write()
-                with open(out_path, "wb") as f:
-                    f.write(contents)
+            if a.mode == 'test':
+                for kind in ["inputs", "outputs", "targets"]:
+                    filename = name + kind + ".png"
+                    out_path = os.path.join(image_dir, filename)
+                    contents = fetches[kind][i]
+                    # images have been converted to png binary and can be saved by only f.write()
+                    with open(out_path, "wb") as f:
+                        f.write(contents)
+
+            elif a.mode == 'train':
+                for kind in ["outputs"]:
+                    filename = name + ".png"
+                    out_path = os.path.join(image_dir, filename)
+                    contents = fetches[kind][i]
+                    # images have been converted to png binary and can be saved by only f.write()
+                    with open(out_path, "wb") as f:
+                        f.write(contents)
             # sio.savemat(os.path.join(mat_dir, name+".mat"), {"beta":fetches["beta"][i]})       
             filesets.append(fileset)
     else:
@@ -1610,7 +1623,8 @@ def main():
     tf.summary.scalar("discriminator_loss", model.discrim_loss)
     tf.summary.scalar("generator_loss_GAN", model.gen_loss_GAN)
     tf.summary.scalar("generator_loss_L1", model.gen_loss_L1)
-    tf.summary.scalar("generator_loss_fm", model.gen_loss_fm)
+    if a.fm:
+        tf.summary.scalar("generator_loss_fm", model.gen_loss_fm)
 
     for var in tf.trainable_variables():
         tf.summary.histogram(var.op.name + "/values", var)
@@ -1629,6 +1643,12 @@ def main():
         for var in restore_var:
             print(var)
 
+    if a.mode == "test": # only restore the geerator when testing
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") 
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
     saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
@@ -1638,14 +1658,14 @@ def main():
         print("parameter_count =", sess.run(parameter_count))
 
         if a.checkpoint is not None:
-            if a.finetune:
+            if a.finetune and a.mode == 'train':
                 print("loading partial model from checkpoint for finetuning")
                 checkpoint = tf.train.latest_checkpoint(a.checkpoint)
                 restore_saver.restore(sess, checkpoint)
-            else:
+            elif a.mode == 'test':
                 print("loading model from checkpoint")
                 checkpoint = tf.train.latest_checkpoint(a.checkpoint)
-                saver.restore(sess, checkpoint)
+                test_restore_saver.restore(sess, checkpoint)
 
         max_steps = 2**32
         if a.max_epochs is not None:
