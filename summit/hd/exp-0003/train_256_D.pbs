@@ -1,7 +1,7 @@
-#PBS -N hd_exp-0003_256_D_cut_NoGlobalD
+#PBS -N hd_exp-0003_256_D_cut_arch4_NoFM_NoS_NoG_convD
 #PBS -l nodes=1:gpus=2:D
-#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_256_D_cut_NoGlobalD.out
-#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_256_D_cut_NoGlobalD.err
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_256_D_cut_arch4_NoFM_NoS_NoG_convD.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_256_D_cut_arch4_NoFM_NoS_NoG_convD.err
 #PBS -r y
 
 cd $PBS_O_WORKDIR
@@ -11,7 +11,9 @@ echo This job runs on following nodes:
 cat $PBS_NODEFILE
 cat $PBS_GPUFILE
 
+echo "0003_256_D_cut_arch4_NoFM_NoS_NoG_convD" 
+echo "commit 6dac0650c76449aa2037c2de884bbc3952c64a7b"
+
 startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0003/train_256_D.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
 
-echo "baseline, lsgan, fm, style, 0003_256_D_cut_NoGlobalD" 
-echo "commit 3a164a681760c430286a81cf7633ebc5c08eecf5"
+

@@ -425,7 +425,9 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
             for i in range(a.num_residual_blocks):
                 net = ops.resblock_dialated_sn(net, channels=a.ngf*4, rate=2, sn=a.sn, scope='resblock_%d' % i)
 
-    if a.gen_resgan_arch == 0:
+    arch = 0
+
+    if arch ==0:
             with tf.variable_scope("decoder"):
                 #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
                 #net = tf.contrib.layers.instance_norm(net)
@@ -448,29 +450,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 net = tf.tanh(net)
                 print(net.get_shape())
 
-    if a.gen_resgan_arch == 4:
-            with tf.variable_scope("decoder_0"):
-                net = ops.upconv(net, channels=a.ngf*2, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_0')
-                net = tf.contrib.layers.instance_norm(net)
-                net = tf.nn.relu(net)
-                print(net.get_shape())
-
-            with tf.variable_scope("decoder_1"):
-                net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
-                net = tf.contrib.layers.instance_norm(net)
-                net = tf.nn.relu(net)
-                print(net.get_shape())
-                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
-                #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
-
-            with tf.variable_scope("decoder_2"):
-                net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
-                net = tf.tanh(net)
-                print(net.get_shape())
-
-
-
-    elif a.gen_resgan_arch == 1: # 1 for attention + last2; 0 for attetntion + last1
+    elif arch == 1: # 1 for attention + last2; 0 for attetntion + last1
         with tf.device("/gpu:%d" % (gpu_idx)):
             with tf.variable_scope("decoder"):
                 #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
@@ -501,8 +481,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
                 net = tf.tanh(net)
                 print(net.get_shape())
-
-    elif a.gen_resgan_arch == 2:
+    elif arch == 2:
         with tf.device("/gpu:%d" % (gpu_idx)):
             with tf.variable_scope("decoder"):
                 #net = ops.upconv(net, channels=a.ngf*4, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_3')
@@ -781,15 +760,6 @@ def create_generator_mru(generator_inputs, generator_outputs_channels):
                 output = tf.nn.dropout(output, keep_prob=1 - dropout)
 
             layers.append(output)
-    
-    # self-attention layer
-    with tf.device("/gpu:%d" % (1)):
-        if a.attention:
-            with tf.variable_scope("self-attention"): 
-                net = layers[-1]
-                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
-                layers.append(net)
 
     # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
     with tf.variable_scope("decoder_1"):
@@ -800,6 +770,7 @@ def create_generator_mru(generator_inputs, generator_outputs_channels):
         layers.append(output)
 
     return layers[-1]
+    return
 
 def create_generator_mru_res(generator_inputs, generator_outputs_channels):
     """
@@ -898,7 +869,6 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
             layers.append(output_d1)
 
     return layers[-1]
-
 
 def create_generator_resnet(generator_inputs, generator_outputs_channels):
     with tf.variable_scope('Generator'):
@@ -1420,179 +1390,6 @@ def create_model_finetune_resgan(inputs, targets):
         train=tf.group(update_losses, incr_global_step, finetune_train),
     )
 
-def create_model_finetune_mru(inputs, targets):
-    #with tf.device("/gpu:1"):
-    with tf.variable_scope("generator") as scope:
-        # float32 for TensorFlow
-        inputs = tf.cast(inputs, tf.float32)
-        targets = tf.cast(targets, tf.float32)
-        out_channels = int(targets.get_shape()[-1])
-        if a.generator == 'res':
-            outputs = create_generator_resnet(inputs, out_channels)
-            beta_list = []
-        elif a.generator == 'ir':
-            outputs = create_generator_irnet(inputs, out_channels)
-            beta_list = []
-        elif a.generator == 'ed':
-            outputs = create_generator_ed(inputs, out_channels)
-            beta_list = []
-        elif a.generator == 'mru':
-            outputs = create_generator_mru(inputs, out_channels)
-            beta_list = []
-        elif a.generator == 'sa':
-            outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
-        elif a.generator == 'sa_I':
-            outputs, beta_list = create_generator_selfatt(inputs, out_channels)
-        elif a.generator == 'resgan':
-            outputs = create_generator_resgan(inputs, out_channels)
-    
-    if a.vgg:
-        with tf.device("/gpu:0"):    
-            with tf.name_scope("real_vgg") as scope:
-                with tf.variable_scope("vgg"):
-                    real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
-            with tf.name_scope("fake_vgg") as scope:
-                with tf.variable_scope("vgg", reuse=True):
-                    real_vgg_logits, real_vgg_endpoints = create_vgg(targets, num_class=a.num_vgg_class)
-    # create two copies of discriminator, one for real pairs and one for fake pairs
-    # they share the same underlying variables
-    with tf.device("/gpu:0"):
-        if a.discriminator == "conv":
-            create_discriminator = create_discriminator_conv
-            create_discriminator_global = create_discriminator_conv_global   
-        elif a.discriminator == "resgan":
-            create_discriminator = create_discriminator_resgan
-            create_discriminator_global = create_discriminator_conv_global 
-        
-        ############### Discriminator outputs ###########################
-        with tf.name_scope("real_discriminator_patch"):
-            with tf.variable_scope("discriminator_patch"):
-                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_real_patch, feature_real_patch = create_discriminator(inputs, targets)
-        
-        with tf.name_scope("real_discriminator_global"):
-            with tf.variable_scope("discriminator_global"):
-                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
-                predict_real_global, feature_real_global = create_discriminator_global(inputs, targets)
-        
-        with tf.name_scope("fake_discriminator"):
-            with tf.variable_scope("discriminator_patch", reuse=True):
-                # 2x [batch, height, width, channels] => [batch, 30, 30, 1]
-                predict_fake_patch, feature_fake_patch = create_discriminator(inputs, outputs)
-                
-        with tf.name_scope("fake_discriminator_global"):
-            with tf.variable_scope("discriminator_global", reuse=True):
-                # 2x [batch, height, width, channels] => [batch, 1, 1, 1]
-                predict_fake_global, feature_fake_global = create_discriminator_global(inputs, outputs)            
-        
-        ################### Loss #########################################
-        with tf.name_scope("discriminator_loss"):
-            # minimizing -tf.log will try to get inputs to 1
-            # predict_real => 1
-            # predict_fake => 0
-            if a.stabilization == 'lsgan': # TODO: check this loss
-                if a.double_D:
-                    discrim_loss = tf.losses.mean_squared_error(predict_real_patch, tf.ones(predict_real_patch.shape))
-                    discrim_loss += tf.losses.mean_squared_error(predict_real_global, tf.ones(predict_real_global.shape))
-                    discrim_loss += tf.losses.mean_squared_error(predict_fake_patch, tf.zeros(predict_fake_patch.shape))
-                    discrim_loss += tf.losses.mean_squared_error(predict_fake_global, tf.zeros(predict_fake_global.shape))
-                    discrim_loss *= 0.25
-                else:
-                    discrim_loss = tf.losses.mean_squared_error(predict_real_patch, tf.ones(predict_real_patch.shape))
-                    discrim_loss += tf.losses.mean_squared_error(predict_fake_patch, tf.zeros(predict_fake_patch.shape))
-                    discrim_loss *= 0.5
-            else: # TODO: check if this loss is the same as that in p2p_HD.py
-                if a.double_D:
-                    discrim_loss = tf.reduce_mean(-( \
-                        tf.log(predict_real_patch + EPS) \
-                        + tf.log(predict_real_global + EPS) \
-                        + tf.log(1 - predict_fake_patch + EPS) \
-                        + tf.log(1 - predict_fake_global + EPS) \
-                        ))
-                else:
-                    discrim_loss = tf.reduce_mean(-( \
-                        tf.log(predict_real_patch + EPS) \
-                        + tf.log(1 - predict_fake_patch + EPS) \
-                        ))
-
-    
-        
-        gen_loss = 0
-        with tf.name_scope("generator_loss"):
-            # predict_fake => 1
-            # abs(targets - outputs) => 0
-            if 0: # a.double_D: # TODO: 
-                gen_loss_GAN = 0.5*(tf.reduce_mean(-tf.log(predict_fake_patch + EPS)) + \
-                    tf.reduce_mean(-tf.log(predict_fake_global + EPS)))
-            else:
-                gen_loss_GAN = tf.reduce_mean(-tf.log(predict_fake_patch + EPS))
-
-            gen_loss_L1 = tf.reduce_mean(tf.abs(targets - outputs))
-            gen_loss += gen_loss_GAN * a.gan_weight
-            gen_loss += gen_loss_L1 * a.l1_weight
-
-        loss_list = [discrim_loss, gen_loss, gen_loss_GAN, gen_loss_L1]
-
-        with tf.name_scope("generator_feature_matching_loss"):
-            gen_loss_fm = 0 # TODO: remove this line. (if remove, the later references should be modified.
-            if a.fm:
-                gen_loss_fm = tf.get_variable("gen_loss_fm", initializer=tf.constant(0.0))
-                for i in range(a.num_feature_matching):
-                    gen_loss_fm += tf.reduce_mean(tf.abs(feature_fake_patch[-i-1] - feature_real_patch[-i-1]))
-                gen_loss += gen_loss_fm * a.fm_weight
-                loss_list.append(gen_loss_fm)
-
-            if a.style_loss:
-                gen_loss_style = tf.get_variable("gen_loss_style",initializer=tf.constant(0.0))
-                for i in range(a.num_style_loss):
-                    gen_loss_style += tf.reduce_mean(tf.abs(ops.gram_matrix(feature_fake_patch[-i-1]) - ops.gram_matrix(feature_real_patch[-i-1])))
-                gen_loss += gen_loss_style * a.style_weight
-                loss_list.append(gen_loss_style)
-
-        ################## Train ops #########################################
-        with tf.name_scope("discriminator_train"):
-            discrim_tvars = [var for var in tf.trainable_variables() if var.name.startswith("discriminator")]
-            discrim_optim = tf.train.AdamOptimizer(a.lr_discrim, a.beta1)
-            discrim_grads_and_vars = discrim_optim.compute_gradients(discrim_loss, var_list=discrim_tvars, colocate_gradients_with_ops=True)
-            discrim_train = discrim_optim.apply_gradients(discrim_grads_and_vars)
-         
-        with tf.name_scope("generator_train"):
-            with tf.control_dependencies([discrim_train]):
-                gen_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator")]
-                gen_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
-                gen_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
-                gen_train = gen_optim.apply_gradients(gen_grads_and_vars)
-
-        with tf.name_scope("finetune_train"):           
-            finetune_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator/self-attention")] \
-                + [var for var in tf.trainable_variables() if var.name.startswith("generator/decoder_1")]
-            finetune_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
-            finetune_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
-            finetune_train = gen_optim.apply_gradients(gen_grads_and_vars)
-
-
-        ema = tf.train.ExponentialMovingAverage(decay=0.99)
-        update_losses = ema.apply([discrim_loss, gen_loss, gen_loss_GAN, gen_loss_fm, gen_loss_L1])
-
-        global_step = tf.train.get_or_create_global_step()
-        incr_global_step = tf.assign(global_step, global_step+1)
-
-    return Model(
-        predict_real=predict_real_patch,
-        predict_fake=predict_fake_patch,
-        discrim_loss=ema.average(discrim_loss),
-        discrim_grads_and_vars=discrim_grads_and_vars,
-        gen_loss_GAN=ema.average(gen_loss_GAN),
-        gen_loss_L1=ema.average(gen_loss_L1),
-        gen_loss_fm=ema.average(gen_loss_fm),
-        gen_grads_and_vars=gen_grads_and_vars,
-        outputs=outputs,
-        # beta_list=beta_list,
-        beta_list=None,
-        train=tf.group(update_losses, incr_global_step, finetune_train),
-    )
-
-
 def save_images(fetches, step=None):
     image_dir = os.path.join(a.output_dir, "images")
     if not os.path.exists(image_dir):
@@ -1836,31 +1633,11 @@ def main():
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
 
-    if a.finetune and a.generator == 'resgan':
+    if a.finetune:
         restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_patch") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_global") 
-        restore_saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
-        for var in restore_var:
-            print(var)
-
-    if a.finetune and a.generator == 'mru':
-        restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_1") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_2") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_3") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_4") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_5") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_6") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_6") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_5") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_4") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_3") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_2") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_1") \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_global")  \
-            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator_patch")  
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="discriminator") 
         restore_saver = tf.train.Saver(var_list=restore_var, max_to_keep=1)
         for var in restore_var:
             print(var)
@@ -1946,7 +1723,7 @@ def main():
                     fetches["discrim_loss"] = model.discrim_loss
                     fetches["gen_loss_GAN"] = model.gen_loss_GAN
                     fetches["gen_loss_L1"] = model.gen_loss_L1
-                    #fetches["gen_loss_fm"] = model.gen_loss_fm
+                    fetches["gen_loss_fm"] = model.gen_loss_fm
 
                 if should(a.summary_freq):
                     fetches["summary"] = sv.summary_op
@@ -1979,7 +1756,7 @@ def main():
                     print("discrim_loss", results["discrim_loss"])
                     print("gen_loss_GAN", results["gen_loss_GAN"])
                     print("gen_loss_L1", results["gen_loss_L1"])
-                    #print("gen_loss_fm", results["gen_loss_fm"])
+                    print("gen_loss_fm", results["gen_loss_fm"])
 
                 if should(a.save_freq):
                     print("saving model")

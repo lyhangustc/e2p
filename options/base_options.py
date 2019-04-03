@@ -23,10 +23,13 @@ class BaseOptions():
 
         ## architecture selection
         self.parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "mru_res", "sa", "sa_I", "resgan"])
+        self.parser.add_argument("--gen_resgan_arch", default="0", type=int, help="resgan generator archtecture type")
         self.parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
 
         
+        self.parser.add_argument("--use_dropout", dest="dropout", action="store_true", help="use pretrained vgg model for perceptual loss")
+        self.parser.set_defaults(dropout=False)
         self.parser.add_argument("--use_vgg", dest="vgg", action="store_true", help="use pretrained vgg model for perceptual loss")
         self.parser.set_defaults(vgg=False)
         self.parser.add_argument("--no_double_D", dest="double_D", action="store_false", help="use both global and local model") # TODO: switch to num_D
