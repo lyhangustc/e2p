@@ -14,6 +14,7 @@ import math
 import time
 import scipy.ndimage as sn 
 import scipy.io as sio
+from PIL import Image
 
 import warnings
 from functools import partial
@@ -37,6 +38,10 @@ Examples = collections.namedtuple("Examples", "filenames, inputs, targets, count
 Model = collections.namedtuple("Model", "outputs, beta_list, predict_real, predict_fake, discrim_loss, discrim_grads_and_vars, gen_loss_GAN, gen_loss_L1, gen_loss_fm, gen_grads_and_vars, train")
 seed = random.randint(0, 2**31 - 1)
 
+if a.finetune:
+    a.attention = True
+
+
 ##################### Data #####################################################
 
 def transform(image):
@@ -52,7 +57,7 @@ def transform(image):
     r = image
     height = r.get_shape()[0] # h, w, c
     width = r.get_shape()[1]
-    if a.flip:
+    if a.flip and a.mode == 'train':
         r = tf.image.random_flip_left_right(r, seed=seed)
     if a.monochrome:
         r = tf.image.rgb_to_grayscale(r)
@@ -62,7 +67,7 @@ def transform(image):
         oh = (height - size) // 2
         ow = (width - size) // 2
         r = tf.image.crop_to_bounding_box(image=r, offset_height=oh, offset_width=ow, target_height=size, target_width=size)
-    if  a.random_crop: 
+    if  a.random_crop and a.mode == 'train': 
         # resize to a.scale_size and then randomly crop to a.target_size
         r = tf.image.resize_images(r, [a.scale_size, a.scale_size], method=tf.image.ResizeMethod.AREA)
         if not a.target_size == a.scale_size:
@@ -153,9 +158,11 @@ def parse_function_test_hd(example_proto):
 
     if a.input_type == "df":
         df = tf.decode_raw(parsed_features['df'], tf.float32) 
-        df = tf.reshape(df, [512, 512, 1])   
-        #df = df/tf.reduce_max(df) # normalize the distance fields, by the max value, to fit grayscale
-        df = df / a.df_norm_value # normalize the distance fields, by a given value, to fit grayscale
+        df = tf.reshape(df, [512, 512, 1]) 
+        if a.df_norm == 'value':# normalize the distance fields, by a given value, to fit grayscale
+            vg = vg / a.df_norm_value
+        elif a.df_norm == 'max':# normalize the distance fields, by the max value, to fit grayscale
+            vg = vg / tf.reduce_max(vg)
         df = (df) * 2. - 1.    
         df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
@@ -187,16 +194,18 @@ def parse_function_test_hd(example_proto):
         #edge = transform(tf.image.grayscale_to_rgb(edge))
 
         vg = tf.multiply(hed, edge)
-        vg = tf.less(vg, tf.ones(tf.shape(vg)) * 1e-10)
+        cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold)
+        vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg)))
         vg = ops.distance_transform(vg)
         vg = tf.reshape(vg, [512, 512, 1])
-        #vg = vg / a.df_norm_value
-        vg = vg / tf.reduce_max(vg)
-        #vg = 2. - vg * 2.
+        if a.df_norm == 'value':
+            vg = vg / a.df_norm_value
+        elif a.df_norm == 'max':
+            vg = vg / tf.reduce_max(vg)
+        vg = vg * 2. - 1.
+
+
         vg = transform(tf.image.grayscale_to_rgb(vg))
-
-        print(vg.get_shape())
-
         condition = vg
     return photo, condition, filenames
 
@@ -364,9 +373,17 @@ def read_tfrecord():
     steps_per_epoch = int(math.ceil(a.num_examples / a.batch_size))
     
     # show read results for code test
-    #sess = tf.Session()
-    #photo1, mat1 = sess.run(iterator.get_next())
-    #Image.fromarray(photo1[0,:,:,:], "RGB").save('/data4T1/liyh/data/CelebA/tfrecord/a1.jpg')
+    if 0:
+        sess = tf.Session()
+        photo1, condition1, filename1 = sess.run(iterator.get_next())
+        #photo1 = photo1 * 255.
+        photo1 = (photo1 + 1.) / 2. * 255.
+        condition1 = (condition1 + 1.) / 2. * 255.
+        print(photo1.shape)
+        print(condition1.shape)
+        Image.fromarray(photo1[0,:,:,:].astype(np.uint8), "RGB").save(os.path.join(a.output_dir, "test_photo.png"))
+        Image.fromarray(condition1[0,:,:,:].astype(np.uint8), "RGB").save(os.path.join(a.output_dir, "test_condition.png"))
+        print("filename:", filename1)
     #sio.savemat(os.path.join('/data4T1/liyh/data/CelebA/tfrecord', "b2.mat"), {"predict": photo1[0,:,:,:]})
     #sio.savemat(os.path.join('/data4T1/liyh/data/CelebA/tfrecord', "a2.mat"), {"predict": mat1[0,:,:,:]})
     
@@ -425,9 +442,10 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
 
         # self-attention layer
         with tf.device("/gpu:%d" % (gpu_idx+1)):
-            with tf.variable_scope("self-attention"): 
-                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                                input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+            if a.attention:
+                with tf.variable_scope("self-attention"): 
+                    net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                                    input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
             with tf.variable_scope("end"):
                 net = ops.upconv(net, channels=a.ngf, kernel=3, stride=2, use_bias=True, sn=a.sn, scope='decoder_1')
@@ -552,6 +570,7 @@ def create_generator_selfatt_stack(generator_inputs, generator_outputs_channels,
             layers.append(output)
 
     return layers[-1], beta_list
+
 
 def create_generator_selfatt(generator_inputs, generator_outputs_channels, flag_I=True):
     """
@@ -740,91 +759,91 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
     layers = []
 
     ngf = a.ngf
+    with tf.device("/gpu:1"):
+        # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
+        with tf.variable_scope("encoder_1"):
+            output_e1 = conv(generator_inputs, a.ngf, stride=2)
+            rectified = lrelu(output_e1, 0.2)
+            layers.append(output_e1)
 
-    # encoder_1: [batch, 256, 256, in_channels] => [batch, 128, 128, ngf]
-    with tf.variable_scope("encoder_1"):
-        output_e1 = conv(generator_inputs, a.ngf, stride=2)
-        rectified = lrelu(output_e1, 0.2)
-        layers.append(output_e1)
+        with tf.variable_scope("encoder_2"):
+            # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
+            output_e2 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 2, stride=2)
+            layers.append(output_e2)
 
-    with tf.variable_scope("encoder_2"):
-        # encoder_2: [batch, 128, 128, ngf] => [batch, 64, 64, ngf * 2]
-        output_e2 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 2, stride=2)
-        layers.append(output_e2)
+        with tf.variable_scope("encoder_3"):
+            # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
+            output_e3 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 4, stride=2)
+            layers.append(output_e3)
 
-    with tf.variable_scope("encoder_3"):
-        # encoder_3: [batch, 64, 64, ngf * 2] => [batch, 32, 32, ngf * 4]
-        output_e3 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 4, stride=2)
-        layers.append(output_e3)
+        with tf.variable_scope("encoder_4"):
+            # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
+            output_e4 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 6, stride=2)
+            layers.append(output_e4)
 
-    with tf.variable_scope("encoder_4"):
-        # encoder_4: [batch, 32, 32, ngf * 4] => [batch, 16, 16, ngf * 8]
-        output_e4 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 6, stride=2)
-        layers.append(output_e4)
+        with tf.variable_scope("encoder_5"):
+            # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
+            output_e5 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
+            layers.append(output_e5)
 
-    with tf.variable_scope("encoder_5"):
-        # encoder_5: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
-        output_e5 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
-        layers.append(output_e5)
-
-    with tf.variable_scope("encoder_6"):
-        # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
-        output_e6 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
-        layers.append(output_e6)
+        with tf.variable_scope("encoder_6"):
+            # encoder_6: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
+            output_e6 = mru(layers[-1], tf.image.resize_images(generator_inputs, layers[-1].shape[1:3]), ngf * 8, stride=2)
+            layers.append(output_e6)
     
-    with tf.variable_scope("middle"):
-        net = layers[-1]
-        for i in range(a.num_residual_blocks):
-            net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
-        layers.append(net)
+        with tf.variable_scope("middle"):
+            net = layers[-1]
+            for i in range(a.num_residual_blocks):
+                net = ops.resblock_dialated_sn(net, channels=a.ngf*8, rate=2, sn=a.sn, scope='resblock_%d' % i)
+            layers.append(net)
 
-    with tf.variable_scope("decoder_6"):
-        # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
-        input = layers[-1]
-        output_d6 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
-        if a.dropout > 1e-5:
-            output_d6 = tf.nn.dropout(output_d6, keep_prob=1 - a.dropout)
-        layers.append(output_d6)
+        with tf.variable_scope("decoder_6"):
+            # decoder_6: [batch, 4, 4, ngf * 8 * 2] => [batch, 8, 8, ngf * 8 * 2]
+            input = layers[-1]
+            output_d6 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
+            if a.dropout > 1e-5:
+                output_d6 = tf.nn.dropout(output_d6, keep_prob=1 - a.dropout)
+            layers.append(output_d6)
 
-    with tf.variable_scope("decoder_5"):
-        # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
-        input = tf.concat([layers[-1], output_e5], axis=3)
-        output_d5 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
-        if a.dropout > 1e-5:
-            output_d5 = tf.nn.dropout(output_d5, keep_prob=1 - a.dropout)
-        layers.append(output_d5)
+        with tf.variable_scope("decoder_5"):
+            # decoder_5: [batch, 8, 8, ngf * 8 * 2] => [batch, 16, 16, ngf * 8 * 2]
+            input = tf.concat([layers[-1], output_e5], axis=3)
+            output_d5 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 8, stride=2)
+            if a.dropout > 1e-5:
+                output_d5 = tf.nn.dropout(output_d5, keep_prob=1 - a.dropout)
+            layers.append(output_d5)
 
-    with tf.variable_scope("decoder_4"):
-        # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
-        input = tf.concat([layers[-1], output_e4], axis=3)
-        output_d4 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 4, stride=2)
-        if a.dropout > 1e-5:
-            output_d4 = tf.nn.dropout(output_d4, keep_prob=1 - a.dropout)
-        layers.append(output_d4)
+        with tf.variable_scope("decoder_4"):
+            # decoder_4: [batch, 16, 16, ngf * 8 * 2] => [batch, 32, 32, ngf * 4 * 2]
+            input = tf.concat([layers[-1], output_e4], axis=3)
+            output_d4 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 4, stride=2)
+            if a.dropout > 1e-5:
+                output_d4 = tf.nn.dropout(output_d4, keep_prob=1 - a.dropout)
+            layers.append(output_d4)
 
-    with tf.variable_scope("decoder_3"):
-        # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
-        input = tf.concat([layers[-1], output_e3], axis=3)
-        output_d3 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
-        if a.dropout > 1e-5:
-            output_d3 = tf.nn.dropout(output_d3, keep_prob=1 - a.dropout)
-        layers.append(output_d3)
+        with tf.variable_scope("decoder_3"):
+            # decoder_3: [batch, 32, 32, ngf * 4 * 2] => [batch, 64, 64, ngf * 2 * 2]
+            input = tf.concat([layers[-1], output_e3], axis=3)
+            output_d3 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
+            if a.dropout > 1e-5:
+                output_d3 = tf.nn.dropout(output_d3, keep_prob=1 - a.dropout)
+            layers.append(output_d3)
 
-    with tf.variable_scope("decoder_2"):
-        # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
-        input = tf.concat([layers[-1], output_e2], axis=3)
-        output_d2 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
-        if a.dropout > 1e-5:
-            output_d2 = tf.nn.dropout(output_d2, keep_prob=1 - a.dropout)
-        layers.append(output_d2)
+        with tf.variable_scope("decoder_2"):
+            # decoder_2: [batch, 64, 64, ngf * 2 * 2] => [batch, 128, 128, ngf * 2]
+            input = tf.concat([layers[-1], output_e2], axis=3)
+            output_d2 = demru(input, tf.image.resize_images(generator_inputs, input.shape[1:3]), ngf * 2, stride=2)
+            if a.dropout > 1e-5:
+                output_d2 = tf.nn.dropout(output_d2, keep_prob=1 - a.dropout)
+            layers.append(output_d2)
 
-    with tf.variable_scope("decoder_1"):
-        # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
-        input = tf.concat([layers[-1], output_e1], axis=3)
-        rectified = tf.nn.relu(input)
-        output_d1 = deconv(rectified, generator_outputs_channels)
-        output_d1 = tf.tanh(output_d1)
-        layers.append(output_d1)
+        with tf.variable_scope("decoder_1"):
+            # decoder_1: [batch, 128, 128, ngf * 2] => [batch, 256, 256, generator_outputs_channels]
+            input = tf.concat([layers[-1], output_e1], axis=3)
+            rectified = tf.nn.relu(input)
+            output_d1 = deconv(rectified, generator_outputs_channels)
+            output_d1 = tf.tanh(output_d1)
+            layers.append(output_d1)
 
     return layers[-1]
 
@@ -1709,5 +1728,9 @@ def main():
                     break
     return
 
+def test_reader():
+    examples, iterator  = read_tfrecord()
 
 main()
+
+#test_reader()

@@ -162,6 +162,8 @@ def gram_matrix(feature):
 # Auxilary Function
 ##################################################################################
 def distance_transform(x):
+    # Exact euclidean distance transform. 
+    # Equal to 0 if value is 0
     def py_distance_transform(x):
         y = sn.distance_transform_edt(x).astype(np.float32)
         return y

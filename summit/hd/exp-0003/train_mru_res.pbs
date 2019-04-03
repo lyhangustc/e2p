@@ -1,7 +1,7 @@
-#PBS -N hd_exp-0003_mru_NoFM_NoS_NoG
+#PBS -N hd_exp-0003_mru_res1_convD
 #PBS -l nodes=1:gpus=2:D
-#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_mru_NoFM_NoS_NoG.out
-#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_mru_NoFM_NoS_NoG.err
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_mru_res1_convD.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0003/hd_exp-0003_mru_res1_convD.err
 #PBS -r y
 
 cd $PBS_O_WORKDIR
@@ -11,7 +11,7 @@ echo This job runs on following nodes:
 cat $PBS_NODEFILE
 cat $PBS_GPUFILE
 
-startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0003/train_mru_res.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+echo "0003_mru_res1_convD" 
+echo "commit b067273f5f16b190992d2aefcc0b1358f3a085b5"
 
-echo "0003_256_D_cut_NoGlobalD" 
-echo "commit 3a164a681760c430286a81cf7633ebc5c08eecf5"
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0003/train_mru_res.sh bit:5000/pengll_tf1.8.4_python3.6-tk 

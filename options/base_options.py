@@ -25,12 +25,12 @@ class BaseOptions():
         self.parser.add_argument("--generator", default="mru", choices=["res", "ir", "ed", "mru", "mru_res", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--discriminator", default="conv", choices=["res", "ir", "conv", "mru", "sa", "sa_I", "resgan"])
         self.parser.add_argument("--input_type", default="df", choices=["edge", "df", "hed", "vg"])
+
         
         self.parser.add_argument("--use_vgg", dest="vgg", action="store_true", help="use pretrained vgg model for perceptual loss")
         self.parser.set_defaults(vgg=False)
         self.parser.add_argument("--no_double_D", dest="double_D", action="store_false", help="use both global and local model") # TODO: switch to num_D
         self.parser.set_defaults(double_D=True)
-        self.parser.add_argument("--dropout", type=float, default=0.0, help="the nomalizaiton value of distance fields")
 
         self.parser.add_argument("--ngf", type=int, default=64, help="number of generator filters in first conv layer")
         self.parser.add_argument("--ndf", type=int, default=64, help="number of discriminator filters in first conv layer")
@@ -39,6 +39,9 @@ class BaseOptions():
         self.parser.add_argument("--channel_fac", default=16, type=int, help="faction of channel in self attention modual. Set to large to save GPU memory")
         self.parser.add_argument("--enc_atten", type=str, default="FTFFF")
         self.parser.add_argument("--dec_atten", type=str, default="FFFTF")
+        self.parser.add_argument("--use_attention", dest="attention", action="store_true", help="finetune model from a restored model") 
+        self.parser.set_defaults(attention=False)
+
         
         self.parser.add_argument("--no_sn", dest="sn", action="store_false", help="do not use spectral normalization")
         self.parser.set_defaults(sn=True)
@@ -62,6 +65,9 @@ class BaseOptions():
         self.parser.set_defaults(random_crop=False)
         self.parser.add_argument("--monochrome", dest="monochrome", action="store_true", help="convert image from rgb to gray")
         self.parser.set_defaults(monochrome=False)
+
+        self.parser.add_argument("--df_threshold", type=float, default=0.5, help="the nomalizaiton value of distance fields")
+        self.parser.add_argument("--df_norm", default="value", choices=["max", "value"])
         self.parser.add_argument("--df_norm_value", type=float, default=64.0, help="the nomalizaiton value of distance fields")
         self.parser.add_argument("--no_hd", dest="hd", action="store_false", help="don't use hd dataset, default use hd.")
         self.parser.set_defaults(hd=True)
