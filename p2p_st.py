@@ -160,9 +160,9 @@ def parse_function_test_hd(example_proto):
         df = tf.decode_raw(parsed_features['df'], tf.float32) 
         df = tf.reshape(df, [512, 512, 1]) 
         if a.df_norm == 'value':# normalize the distance fields, by a given value, to fit grayscale
-            vg = vg / a.df_norm_value
+            df = df / a.df_norm_value
         elif a.df_norm == 'max':# normalize the distance fields, by the max value, to fit grayscale
-            vg = vg / tf.reduce_max(vg)
+            df = df / tf.reduce_max(df)
         df = (df) * 2. - 1.    
         df = transform(tf.image.grayscale_to_rgb(df))
         condition = df
@@ -191,7 +191,6 @@ def parse_function_test_hd(example_proto):
         edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
         edge = 1. - edge # 1:edge, 0:background
 
-
         vg = tf.multiply(hed, edge) # single pixle probability
         cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold) # thresholding
         vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg))) # single pixle probability after thresholding
@@ -202,9 +201,9 @@ def parse_function_test_hd(example_proto):
         elif a.df_norm == 'max':
             vg = vg / tf.reduce_max(vg)
         vg = vg * 2. - 1.
-
         vg = transform(tf.image.grayscale_to_rgb(vg))
         condition = vg
+
     return photo, condition, filenames
 
 def parse_function(example_proto):
