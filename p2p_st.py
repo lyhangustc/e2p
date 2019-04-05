@@ -441,7 +441,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 net = tf.contrib.layers.instance_norm(net)
                 net = tf.nn.relu(net)
                 print(net.get_shape())
-                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
+                #net, beta = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
                 #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
                 net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
@@ -487,7 +487,7 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
         with tf.device("/gpu:%d" % (gpu_idx+1)):
             if a.attention:
                 with tf.variable_scope("self-attention"): 
-                    net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                    net, beta = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
                                     input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
             with tf.variable_scope("end"):
@@ -521,16 +521,20 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 print(net.get_shape())        
         # self-attention layer
         with tf.device("/gpu:%d" % (gpu_idx+1)):
-            with tf.variable_scope("self-attention"): 
-                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
-                                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
+            if a.attention:
+                with tf.variable_scope("self-attention"): 
+                    net, beta = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                                    input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
 
             with tf.variable_scope("end"):
                 net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
                 net = tf.tanh(net)
                 print(net.get_shape())
 
-    return net
+    if a.attention:
+        return net, beta
+    else:
+        return net
 
 def create_generator_selfatt_stack(generator_inputs, generator_outputs_channels, flag_I=True):
     """
@@ -894,7 +898,7 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
         if a.attention:
             with tf.variable_scope("self-attention"): 
                 net = layers[-1]
-                net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                net, beta = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
                                 input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
                 layers.append(net)
 
@@ -907,7 +911,7 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
             output_d1 = tf.tanh(output_d1)
             layers.append(output_d1)
 
-    return layers[-1]
+    return layers[-1], beta
 
 
 def create_generator_resnet(generator_inputs, generator_outputs_channels):
@@ -1141,17 +1145,30 @@ def create_model(inputs, targets):
             outputs = create_generator_ed(inputs, out_channels)
             beta_list = []
         elif a.generator == 'mru':
-            outputs = create_generator_mru(inputs, out_channels)
-            beta_list = []
+            if a.attention:
+                outputs,beta = create_generator_mru(inputs, out_channels)
+                beta_list = [beta]
+            else:
+                outputs = create_generator_mru(inputs, out_channels)
+                beta_list = []
         elif a.generator == 'mru_res':
-            outputs = create_generator_mru_res(inputs, out_channels)
-            beta_list = []
+            if a.attention:
+                outputs, beta = create_generator_mru_res(inputs, out_channels)
+                beta_list = [beta]
+            else:
+                outputs = create_generator_mru_res(inputs, out_channels)
+                beta_list = []
         elif a.generator == 'sa':
             outputs, beta_list = create_generator_selfatt(inputs, out_channels, flag_I=False)
         elif a.generator == 'sa_I':
             outputs, beta_list = create_generator_selfatt(inputs, out_channels)
         elif a.generator == 'resgan':
-            outputs = create_generator_resgan(inputs, out_channels)
+            if a.attention:
+                outputs,beta = create_generator_resgan(inputs, out_channels)
+                beta_list = [beta]
+            else:
+                outputs = create_generator_resgan(inputs, out_channels)
+                beta_list = []
 
     if a.vgg:
         with tf.device("/gpu:0"):    
@@ -1242,8 +1259,10 @@ def create_model(inputs, targets):
 
         loss_list = [discrim_loss, gen_loss, gen_loss_GAN, gen_loss_L1]
 
-        with tf.name_scope("generator_feature_matching_loss"):
-            gen_loss_fm = 0 # TODO: remove this line. (if remove, the later references should be modified.
+        # with tf.name_scope("generator_feature_matching_loss"):
+        with tf.name_scope("gen_fm_loss"):
+            if not a.fm:
+                gen_loss_fm = 0 # TODO: remove this line. (if remove, the later references should be modified.)
             if a.fm:
                 gen_loss_fm = tf.get_variable("gen_loss_fm", initializer=tf.constant(0.0))
                 for i in range(a.num_feature_matching):
@@ -1276,6 +1295,8 @@ def create_model(inputs, targets):
             with tf.name_scope("finetune_train"):           
                 finetune_tvars = [var for var in tf.trainable_variables() if var.name.startswith("generator/self-attention")] \
                     + [var for var in tf.trainable_variables() if var.name.startswith("generator/decoder_1")]
+                if a.double_D:
+                    finetune_tvars += [var for var in tf.trainable_variables() if var.name.startswith("discriminator_global")]
                 finetune_optim = tf.train.AdamOptimizer(a.lr_gen, a.beta1)
                 finetune_grads_and_vars = gen_optim.compute_gradients(gen_loss, var_list=gen_tvars, colocate_gradients_with_ops=True)
                 finetune_train = gen_optim.apply_gradients(gen_grads_and_vars)
@@ -1787,11 +1808,12 @@ def main():
 
         return
 
-    # read TFRecordDataset
+    ####################################### read TFRecordDataset ################################### 
     
     examples, iterator  = read_tfrecord()
     print("examples count = %d" % examples.count)
 
+    ############################ Create Model ######################################################
     if a.finetune and a.generator == 'resgan':
         model = create_model_finetune_resgan(examples.inputs, examples.targets)
     #elif a.finetune and a.generator == 'mru':
@@ -1919,11 +1941,42 @@ def main():
         for var in restore_var:
             print(var)
 
-    if a.mode == "test": # only restore the geerator when testing
+    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 0: # only restore the geerator when testing
         test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") 
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
+    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 1: # only restore the geerator when testing
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/end") 
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
+    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 4: # only restore the geerator when testing
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") 
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
+    if a.mode == 'test' and a.generator == 'mru_res':
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_1") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_2") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_3") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_4") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_5") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_6") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_6") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_5") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_4") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_3") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_2") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder_1") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention")
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
 
     saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None

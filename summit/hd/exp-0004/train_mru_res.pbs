@@ -1,0 +1,18 @@
+#PBS -N hd_exp-0004_finetune_sa_mru_res_FM_S
+#PBS -l nodes=1:gpus=2:D
+#PBS -o /gdata/liyh/project/e2p/summit/hd/exp-0004/hd_exp-0004_finetune_sa_mru_res_FM_S.out
+#PBS -e /gdata/liyh/project/e2p/summit/hd/exp-0004/hd_exp-0004_finetune_sa_mru_res_FM_S.err
+#PBS -r y
+
+cd $PBS_O_WORKDIR
+echo Time is `date`
+echo Directory is $PWD
+echo This job runs on following nodes:
+cat $PBS_NODEFILE
+cat $PBS_GPUFILE
+
+echo "0004_finetune_sa_mru_res_FM_S" 
+echo "commit d01f0894845b3e7882dd3a068eb0179491241bdc"
+
+startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0004/train_mru_res.sh bit:5000/pengll_tf1.8.4_python3.6-tk 
+

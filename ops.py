@@ -122,7 +122,7 @@ def selfatt(input, condition, input_channel, flag_condition=True, sn=True, chann
         output = gamma * o + input
 
     print("Shape of beta...........................................",beta.get_shape(), output.get_shape())
-    return output #, beta
+    return output, beta
 
 def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
     with tf.variable_scope(scope):
