@@ -57,7 +57,7 @@ def transform(image):
     r = image
     height = r.get_shape()[0] # h, w, c
     width = r.get_shape()[1]
-    if a.flip and a.mode == 'train':
+    if a.flip and not a.mode == 'test':
         r = tf.image.random_flip_left_right(r, seed=seed)
     if a.monochrome:
         r = tf.image.rgb_to_grayscale(r)
@@ -495,8 +495,6 @@ def create_generator_resgan(generator_inputs, generator_outputs_channels, gpu_id
                 net = tf.contrib.layers.instance_norm(net)
                 net = tf.nn.relu(net)
                 print(net.get_shape())
-                #net = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]),
-                #                input_channel=a.ngf, flag_condition=False, channel_fac=a.channel_fac, scope='attention_1')
 
                 net = ops.conv(net, channels=3, kernel=7, stride=1, pad=3, use_bias=True, sn=a.sn, scope='decoder_2')            
                 net = tf.tanh(net)
@@ -1663,7 +1661,8 @@ def save_images(fetches, step=None):
             name = fn
             fileset = {"name": name, "step": step}
             if a.mode == 'test':
-                for kind in ["inputs", "outputs", "targets"]:
+                for kind in ["outputs"]:
+                #for kind in ["inputs", "outputs", "targets"]:
                     filename = name + kind + ".png"
                     out_path = os.path.join(image_dir, filename)
                     contents = fetches[kind][i]
@@ -1921,7 +1920,7 @@ def main():
         for var in restore_var:
             print(var)
 
-    if a.finetune and a.generator == 'mru_res':
+    elif a.finetune and a.generator == 'mru_res':
         restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_1") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_2") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_3") \
@@ -1941,26 +1940,27 @@ def main():
         for var in restore_var:
             print(var)
 
-    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 0: # only restore the geerator when testing
+    elif a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 0: # only restore the geerator when testing
         test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") 
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
-    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 1: # only restore the geerator when testing
+    elif a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 1: # only restore the generator when testing
         test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/end") 
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
-    if a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 4: # only restore the geerator when testing
+    elif a.mode == "test" and a.generator=='resgan' and a.gen_resgan_arch == 4: # only restore the geerator when testing
         test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") 
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
-    if a.mode == 'test' and a.generator == 'mru_res':
+    elif a.mode == 'test' and a.generator == 'mru_res':
         test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_1") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_2") \
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder_3") \
@@ -1977,6 +1977,14 @@ def main():
             + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention")
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
+    elif a.mode == 'test' and a.generator == 'resgan' and a.gen_resgan_arch == 2:
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/end") 
+
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
     saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
