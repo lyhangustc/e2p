@@ -10,6 +10,7 @@ class BaseOptions():
         ## experiment
         self.parser.add_argument("--input_dir", help="path to folder containing images")
         self.parser.add_argument("--mode", required=True, choices=["train", "test", "export"])
+        self.parser.add_argument("--save_beta", action="store_true", help="finetune model from a restored model") 
         self.parser.add_argument("--finetune", dest="finetune", action="store_true", help="finetune model from a restored model") 
         self.parser.set_defaults(finetune=False)
         self.parser.add_argument("--output_dir", required=True, help="where to put output files")

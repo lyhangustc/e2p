@@ -12,6 +12,6 @@ cat $PBS_NODEFILE
 cat $PBS_GPUFILE
 
 echo "test_exp-0004_finetune_sa_last2_end_dgx" 
-echo "commit 358cfef26a006cd8c0e622c4a991d544a26bcc29"
+echo "commit 5b785cf629209afdfe0e52dee4dfc39d0eb19f0f"
 
 startdocker  -D /gdata/liyh/ -P /gdata/liyh/project/e2p/ -s /gdata/liyh/project/e2p/summit/hd/exp-0005/test_exp-0004_finetune_sa_last2_end_dgx.sh bit:5000/pengll_tf1.8.4_python3.6-tk 

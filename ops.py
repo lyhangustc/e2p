@@ -112,17 +112,17 @@ def selfatt(input, condition, input_channel, flag_condition=True, sn=True, chann
         h = conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv') # [bs, h, w, c]
 
         # N = h * w
-        s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, N]
+        s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, c'] dot [bs, N, c']^T = [bs, N, N]
 
         beta = tf.nn.softmax(s)  # attention map
 
-        o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
+        o = tf.matmul(beta, hw_flatten(h)) # [bs, N, N] dot [bs, N,c] = [bs, N, c]
         gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
-        o = tf.reshape(o, shape=input.shape) # [bs, h, w, C]
+        o = tf.reshape(o, shape=input.shape) # [bs, h, w, c]
         output = gamma * o + input
 
-    print("Shape of beta...........................................",beta.get_shape(), output.get_shape())
-    return output, beta
+    beta_reshape = tf.reshape(beta, [-1, 128, 128, 128, 128])  
+    return output, beta_reshape,input
 
 def fully_conneted(x, units, use_bias=True, sn=False, scope='fully_0'):
     with tf.variable_scope(scope):

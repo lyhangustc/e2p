@@ -40,6 +40,9 @@ seed = random.randint(0, 2**31 - 1)
 
 if a.finetune:
     a.attention = True
+if a.save_beta:
+    a.attention = True
+
 
 
 ##################### Data #####################################################
@@ -391,6 +394,62 @@ def read_tfrecord():
         count=len(tfrecord_fn),
         steps_per_epoch=steps_per_epoch
     ), iterator
+
+def load_examples():
+    if a.input_dir is None or not os.path.exists(a.input_dir):
+        raise Exception("input_dir does not exist")
+
+    input_paths = glob.glob(os.path.join(a.input_dir, "*.jpg"))
+    decode = tf.image.decode_jpeg
+    if len(input_paths) == 0:
+        input_paths = glob.glob(os.path.join(a.input_dir, "*.png"))
+        decode = tf.image.decode_png
+
+    if len(input_paths) == 0:
+        raise Exception("input_dir contains no image files")
+
+    def get_name(path):
+        name, _ = os.path.splitext(os.path.basename(path))
+        return name
+
+    print("Found number of input paths: ", len(input_paths))
+    input_paths = input_paths[:a.num_examples]
+    print("Use number of input paths:", len(input_paths))
+
+    with tf.name_scope("load_images"):
+        path_queue = tf.train.string_input_producer(input_paths, shuffle=a.mode == "train")
+        reader = tf.WholeFileReader()
+        paths, contents = reader.read(path_queue)
+        raw_input = decode(contents)
+        raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
+
+        raw_input = tf.reshape(raw_input, [512, 512, 1])
+        print("raw input shape, ", raw_input.get_shape())
+
+        #assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
+        #with tf.control_dependencies([assertion]):
+            #raw_input = tf.identity(raw_input)
+        if a.input_type == 'edge':
+            raw_input = tf.identity(raw_input[:, :, 0])
+            df = ops.distance_transform(raw_input)
+        elif a.input_type == 'df':
+            df = raw_input
+
+        df = tf.image.convert_image_dtype(df, dtype=tf.float32)
+        df = (df) * 2. - 1.
+        df = transform(tf.image.grayscale_to_rgb(df))
+
+    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, df, df], batch_size=a.batch_size)
+    steps_per_epoch = int(math.ceil(len(input_paths) / a.batch_size))
+
+
+    return Examples(
+        filenames=paths_batch,
+        inputs=inputs_batch,
+        targets=targets_batch,
+        count=len(input_paths),
+        steps_per_epoch=steps_per_epoch
+    )
 
 ##################### Generators #################################################
 
@@ -896,7 +955,7 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
         if a.attention:
             with tf.variable_scope("self-attention"): 
                 net = layers[-1]
-                net, beta = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
+                net, beta, feature = ops.selfatt(net, condition=tf.image.resize_images(generator_inputs, net.get_shape().as_list()[1:3]), 
                                 input_channel=a.ngf*2, flag_condition=False, channel_fac=a.channel_fac, scope='attention_0')
                 layers.append(net)
 
@@ -909,7 +968,10 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
             output_d1 = tf.tanh(output_d1)
             layers.append(output_d1)
 
-    return layers[-1], beta
+    if a.attention:
+        return layers[-1], beta, feature
+    else:
+        return layers[-1]
 
 
 def create_generator_resnet(generator_inputs, generator_outputs_channels):
@@ -1151,8 +1213,9 @@ def create_model(inputs, targets):
                 beta_list = []
         elif a.generator == 'mru_res':
             if a.attention:
-                outputs, beta = create_generator_mru_res(inputs, out_channels)
+                outputs, beta, feature = create_generator_mru_res(inputs, out_channels)
                 beta_list = [beta]
+                print(beta.get_shape(), "...........bbbbbbbbbbbbbbbbbbbbbbbbbb.....................")
             else:
                 outputs = create_generator_mru_res(inputs, out_channels)
                 beta_list = []
@@ -1317,10 +1380,26 @@ def create_model(inputs, targets):
             gen_loss_fm=ema.average(gen_loss_fm),
             gen_grads_and_vars=gen_grads_and_vars,
             outputs=outputs,
-            # beta_list=beta_list,
+            #beta_list=beta_list,
             beta_list=None,
             train=tf.group(update_losses, incr_global_step, finetune_train),
-        )
+        ), beta_list
+    elif a.save_beta:
+        return Model(
+            predict_real=predict_real_patch,
+            predict_fake=predict_fake_patch,
+            discrim_loss=ema.average(discrim_loss),
+            discrim_grads_and_vars=discrim_grads_and_vars,
+            gen_loss_GAN=ema.average(gen_loss_GAN),
+            gen_loss_L1=ema.average(gen_loss_L1),
+            gen_loss_fm=ema.average(gen_loss_fm),
+            gen_grads_and_vars=gen_grads_and_vars,
+            outputs=outputs,
+            #beta_list=beta_list,
+            beta_list=None,
+            train=tf.group(update_losses, incr_global_step, gen_train),
+        ), beta_list, feature
+
     else:
         return Model(
             predict_real=predict_real_patch,
@@ -1332,7 +1411,7 @@ def create_model(inputs, targets):
             gen_loss_fm=ema.average(gen_loss_fm),
             gen_grads_and_vars=gen_grads_and_vars,
             outputs=outputs,
-            # beta_list=beta_list,
+            #beta_list=beta_list,
             beta_list=None,
             train=tf.group(update_losses, incr_global_step, gen_train),
         )
@@ -1808,18 +1887,24 @@ def main():
         return
 
     ####################################### read TFRecordDataset ################################### 
-    
-    examples, iterator  = read_tfrecord()
-    print("examples count = %d" % examples.count)
-
+    if a.load_tfrecord:
+        examples, iterator  = read_tfrecord()
+        print("examples count = %d" % examples.count)
+    else:
+        examples = load_examples()
     ############################ Create Model ######################################################
     if a.finetune and a.generator == 'resgan':
         model = create_model_finetune_resgan(examples.inputs, examples.targets)
     #elif a.finetune and a.generator == 'mru':
     #    model = create_model_finetune_mru(examples.inputs, examples.targets)
     else:
-        # inputs and targets are [batch_size, height, width, channels]
-        model = create_model(examples.inputs, examples.targets)
+        if a.attention:
+            # inputs and targets are [batch_size, height, width, channels]
+            model, beta_list, feature = create_model(examples.inputs, examples.targets)
+        else:
+            # inputs and targets are [batch_size, height, width, channels]
+            model = create_model(examples.inputs, examples.targets)
+
 
     # undo colorization splitting on images that we use for display/output
 
@@ -1890,6 +1975,7 @@ def main():
     with tf.name_scope("parameter_count"):
         parameter_count = tf.reduce_sum([tf.reduce_prod(tf.shape(v)) for v in tf.trainable_variables()])
 
+    
 
     if a.finetune and a.generator == 'resgan':
         restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
@@ -1986,6 +2072,18 @@ def main():
 
         test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
 
+    elif a.mode == 'test' and a.save_beta:
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator") 
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
+    elif a.mode == 'test' and a.generator == 'ed':
+        test_restore_var = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/encoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/middle") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/decoder") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/self-attention") \
+            + tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="generator/end") 
+        test_restore_saver = tf.train.Saver(var_list=test_restore_var, max_to_keep=1)
+
     saver = tf.train.Saver(max_to_keep=1)
     logdir = a.output_dir if (a.trace_freq > 0 or a.summary_freq > 0) else None
     sv = tf.train.Supervisor(logdir=logdir, save_summaries_secs=0, saver=None)
@@ -2010,6 +2108,18 @@ def main():
         if a.max_steps is not None:
             max_steps = a.max_steps
 
+        if a.save_beta:
+            results, beta, feature = sess.run([display_fetches, beta_list[0], feature])
+            results = sess.run([display_fetches])
+            #print(beta.shape, "...........................t.t.ttttt.t.")
+            #print(feature.shape, "...........................t.t.ttttt.t.")
+            #sio.savemat(os.path.join(a.output_dir, 'beta.mat'), {'beta':beta})
+            #sio.savemat(os.path.join(a.output_dir, 'feature.mat'), {'feature':feature})
+            out_path = os.path.join(a.output_dir, ''.join(chr(n) for n in results['filenames']) + '.png')
+            with open(out_path, "wb") as f:
+                f.write(results['outputs'])
+
+            return
         if a.mode == "test":
             # testing
             # at most, process the test data once
@@ -2111,6 +2221,7 @@ def main():
 def test_reader():
     examples, iterator  = read_tfrecord()
     return
+
 
 main()
 
