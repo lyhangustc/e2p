@@ -167,7 +167,8 @@ def distance_transform(x):
     def py_distance_transform(x):
         y = sn.distance_transform_edt(x).astype(np.float32)
         return y
-    return tf.py_func(py_distance_transform, [x], tf.float32)
+    output = tf.py_func(py_distance_transform, [x], tf.float32)
+    return output
 
 def flatten(x) :
     return tf.layers.flatten(x)

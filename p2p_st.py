@@ -64,7 +64,7 @@ def transform(image):
         r = tf.image.random_flip_left_right(r, seed=seed)
     if a.monochrome:
         r = tf.image.rgb_to_grayscale(r)
-    if not height == width:
+    if 0: #  not height == width:
         # center crop to correct ratio
         size = min(height, width)
         oh = (height - size) // 2
@@ -323,16 +323,18 @@ def parse_function_hd(example_proto):
         hed = tf.decode_raw(parsed_features['hed'], tf.float32) # [0,1], 0~1: probability of being edge
         hed = tf.reshape(hed, [512, 512, 1])
 
-        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) # single pixel edge, 0 or 1, 0:edge, 1:background
+        edge = tf.decode_raw(parsed_features['edge'], tf.uint8) 
         edge = tf.reshape(edge, [512, 512, 1])
-        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)
+        edge = tf.image.convert_image_dtype(edge, dtype=tf.float32)# single pixel edge, 0 or 1, 0:edge, 1:background
         edge = 1. - edge # 1:edge, 0:background
 
 
         vg = tf.multiply(hed, edge) # single pixle probability
         cond = tf.greater(vg, tf.ones(tf.shape(vg)) * a.df_threshold) # thresholding
         vg = tf.where(cond, tf.zeros(tf.shape(vg)), tf.ones(tf.shape(vg))) # single pixle probability after thresholding
+        print(vg, "Vgggggggggggggggggggggggggg")
         vg = ops.distance_transform(vg)
+        print(vg, "Vgggggggggggggggggggggggggg")
         vg = tf.reshape(vg, [512, 512, 1])
         if a.df_norm == 'value':
             vg = vg / a.df_norm_value
@@ -351,7 +353,7 @@ def read_tfrecord():
         if a.mode=='train':
             dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. 
         else:
-            dataset = dataset.map(parse_function_test_hd)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
+            dataset = dataset.map(parse_function_hd)  # Parse the record into tensors. If test, mask is not included in tfrecord file.
     else:
         if a.mode=='train':
             dataset = dataset.map(parse_function)  # Parse the record into tensors. 
@@ -408,10 +410,6 @@ def load_examples():
     if len(input_paths) == 0:
         raise Exception("input_dir contains no image files")
 
-    def get_name(path):
-        name, _ = os.path.splitext(os.path.basename(path))
-        return name
-
     print("Found number of input paths: ", len(input_paths))
     input_paths = input_paths[:a.num_examples]
     print("Use number of input paths:", len(input_paths))
@@ -426,16 +424,20 @@ def load_examples():
         raw_input = tf.reshape(raw_input, [512, 512, 1])
         print("raw input shape, ", raw_input.get_shape())
 
-        #assertion = tf.assert_equal(tf.shape(raw_input)[2], 3, message="image does not have 3 channels")
-        #with tf.control_dependencies([assertion]):
-            #raw_input = tf.identity(raw_input)
-        if a.input_type == 'edge':
-            raw_input = tf.identity(raw_input[:, :, 0])
-            df = ops.distance_transform(raw_input)
-        elif a.input_type == 'df':
+        if a.input_type == 'df':
+            print(raw_input, "rrrrrrrrrrrrrrrrrrrrawwwwwwwwwwwwwwww")
+            
+            cond = tf.greater(raw_input, tf.ones(tf.shape(raw_input)) * a.df_threshold) # thresholding
+            edge = tf.where(cond, tf.ones(tf.shape(raw_input)), tf.zeros(tf.shape(raw_input))) # single pixle probability after thresholding
+            df = ops.distance_transform(edge)
+            df = tf.reshape(df, [512, 512, 1])
+        elif a.input_type == 'edge':
             df = raw_input
 
-        df = tf.image.convert_image_dtype(df, dtype=tf.float32)
+        if a.df_norm == 'value':
+            df = df / a.df_norm_value
+        elif a.df_norm == 'max':
+            df = df / tf.reduce_max(df)
         df = (df) * 2. - 1.
         df = transform(tf.image.grayscale_to_rgb(df))
 
@@ -973,7 +975,6 @@ def create_generator_mru_res(generator_inputs, generator_outputs_channels):
     else:
         return layers[-1]
 
-
 def create_generator_resnet(generator_inputs, generator_outputs_channels):
     with tf.variable_scope('Generator'):
         shortcut = slim.conv2d(generator_inputs, a.ngf, [1, 1], stride=1,
@@ -1384,7 +1385,7 @@ def create_model(inputs, targets):
             beta_list=None,
             train=tf.group(update_losses, incr_global_step, finetune_train),
         ), beta_list
-    elif a.save_beta:
+    elif a.save_beta or a.attention:
         return Model(
             predict_real=predict_real_patch,
             predict_fake=predict_fake_patch,
@@ -1722,31 +1723,28 @@ def create_model_finetune_mru(inputs, targets):
         train=tf.group(update_losses, incr_global_step, finetune_train),
     )
 
-
 def save_images(fetches, step=None):
     image_dir = os.path.join(a.output_dir, "images")
     if not os.path.exists(image_dir):
         os.makedirs(image_dir)
-    
-    mat_dir = os.path.join(a.output_dir, "mats")
-    if not os.path.exists(mat_dir):
-        os.makedirs(mat_dir)
-    
+
     filesets = []
-    if a.load_tfrecord == True:
+    if 1: # a.load_tfrecord == True:
         for i, fn in enumerate(fetches["filenames"]):
             # int to ascii
-            fn = ''.join(chr(n) for n in fn)
-            name = fn
-            fileset = {"name": name, "step": step}
+            input_path = ''.join(chr(n) for n in fn)
+            input_name = os.path.splitext(os.path.basename(input_path))[0]
+            fileset = {"name": input_name, "step": step}
             if a.mode == 'test':
-                for kind in ["outputs"]:
-                #for kind in ["inputs", "outputs", "targets"]:
-                    filename = name + kind + ".png"
-                    out_path = os.path.join(image_dir, filename)
+                #for kind in ["outputs"]:
+                for kind in ["inputs", "outputs", "targets"]:
+                    print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO output image name: ", input_name)
+                    output_filename = input_name + kind + ".png"
+                    output_path = os.path.join(image_dir, output_filename)
                     contents = fetches[kind][i]
+                    print("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO output image name: ", output_path)
                     # images have been converted to png binary and can be saved by only f.write()
-                    with open(out_path, "wb") as f:
+                    with open(output_path, "wb") as f:
                         f.write(contents)
 
             elif a.mode == 'train':
