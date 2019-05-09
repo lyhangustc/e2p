@@ -2,7 +2,7 @@
 cd /gdata/liyh/project/e2p
 
 
-for GAMMA in 0.7 0.8 0.9
+for GAMMA in 0.0 0.3 0.6
 do 
     python p2p_st.py \
     --input_dir /gdata/liyh/data/CelebA-HD/data/tfrecord/test \
@@ -19,8 +19,6 @@ do
     --stabilization wgan \
     --no_fm \
     --no_style_loss \
-    --no_double_D
+    --no_double_D \
     --df_threshold $GAMMA
 done
-
-

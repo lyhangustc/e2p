@@ -419,20 +419,18 @@ def load_examples():
         reader = tf.WholeFileReader()
         paths, contents = reader.read(path_queue)
         raw_input = decode(contents)
+        raw_input = tf.reshape(raw_input, [256, 256, 1])
         raw_input = tf.image.convert_image_dtype(raw_input, dtype=tf.float32)
 
-        raw_input = tf.reshape(raw_input, [512, 512, 1])
-        print("raw input shape, ", raw_input.get_shape())
-
-        if a.input_type == 'df':
+        if a.input_type == 'edge':
             print(raw_input, "rrrrrrrrrrrrrrrrrrrrawwwwwwwwwwwwwwww")
             
             cond = tf.greater(raw_input, tf.ones(tf.shape(raw_input)) * a.df_threshold) # thresholding
             edge = tf.where(cond, tf.ones(tf.shape(raw_input)), tf.zeros(tf.shape(raw_input))) # single pixle probability after thresholding
             df = ops.distance_transform(edge)
-            df = tf.reshape(df, [512, 512, 1])
-        elif a.input_type == 'edge':
-            df = raw_input
+            df = tf.reshape(df, [256, 256, 1])
+        elif a.input_type == 'df':
+            df = tf.reshape(raw_input, [256, 256, 1])
 
         if a.df_norm == 'value':
             df = df / a.df_norm_value
@@ -441,7 +439,8 @@ def load_examples():
         df = (df) * 2. - 1.
         df = transform(tf.image.grayscale_to_rgb(df))
 
-    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, df, df], batch_size=a.batch_size)
+
+    paths_batch, inputs_batch, targets_batch = tf.train.batch([paths, df, transform(tf.image.grayscale_to_rgb(edge))], batch_size=a.batch_size)
     steps_per_epoch = int(math.ceil(len(input_paths) / a.batch_size))
 
 
